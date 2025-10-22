@@ -7,39 +7,92 @@ local ReplicatedStorage = game:GetService('ReplicatedStorage')
 local Workspace = game:GetService('Workspace')
 local HttpService = game:GetService('HttpService')
 local RunService = game:GetService('RunService')
+local Webhook = getgenv().UserSettings.Webhook
 
-local GROUP1 = 339846382
+local function SendWebhook(msg)
+    local body = HttpService:JSONEncode({ content = msg })
+    pcall(function()
+        if request then
+            request({
+                Url = Webhook,
+                Method = 'POST',
+                Headers = { ['Content-Type'] = 'application/json' },
+                Body = body,
+            })
+        elseif http and http.request then
+            http.request({
+                Url = Webhook,
+                Method = 'POST',
+                Headers = { ['Content-Type'] = 'application/json' },
+                Body = body,
+            })
+        elseif httppost then
+            httppost(Webhook, body, 'application/json')
+        end
+    end)
+end
+
+local GROUP1 = 7 -- 339846382
 local GROUP2 = 34199407
+
+local PausedByGroup = false
+local GroupIdleArgs = {
+    322.345612,
+    35.0833168,
+    -604.33374,
+    0.038368497,
+    -9.53096517e-08,
+    0.999263644,
+    -8.00722244e-09,
+    1,
+    9.56873336e-08,
+    -0.999263644,
+    -1.16727055e-08,
+    0.038368497,
+}
+
 local function check(Plr)
-    if not Plr or not Plr.Parent then
+    if not Plr or not Plr.Parent or not Plr:IsA('Player') then
         return
     end
-    local info = MarketplaceService:GetProductInfo(game.PlaceId).Creator
-    if info.CreatorType == 'Group' then
-        local gid = GroupService:GetGroupInfoAsync(info.CreatorTargetId).Id
-        if Plr:IsInGroup(gid) and Plr:GetRankInGroup(gid) > 0 then
+
+    pcall(function()
+        local info = MarketplaceService:GetProductInfo(game.PlaceId).Creator
+        if info.CreatorType == 'Group' then
+            local gid = GroupService:GetGroupInfoAsync(info.CreatorTargetId).Id
+            if Plr:IsInGroup(gid) and Plr:GetRankInGroup(gid) > 0 then
+                game.StarterGui:SetCore('SendNotification', {
+                    Title = 'Mod Detected ',
+                    Text = Plr.Name .. ' joined!',
+                    Duration = 3,
+                })
+            end
+        end
+        if Plr:IsInGroup(GROUP1) and Plr:GetRankInGroup(GROUP1) > 0 then
             game.StarterGui:SetCore('SendNotification', {
-                Title = 'GROUP MEMBER',
-                Text = Plr.Name .. ' joined!',
+                Title = 'Mod Detected',
+                Text = Plr.Name .. '  joined!',
                 Duration = 3,
             })
+            PausedByGroup = true
+            SendWebhook(
+                '@everyone **AUTO FARM PAUSED** MOD JOINED -`' .. Plr.Name .. '` joined!'
+            )
         end
-    end
-    if Plr:IsInGroup(GROUP1) and Plr:GetRankInGroup(GROUP1) > 0 then
-        game.StarterGui:SetCore('SendNotification', {
-            Title = 'GROUP MEMBER',
-            Text = Plr.Name .. ' (GROUP1) joined!',
-            Duration = 3,
-        })
-    end
-    if Plr:IsInGroup(GROUP2) and Plr:GetRankInGroup(GROUP2) > 0 then
-        game.StarterGui:SetCore('SendNotification', {
-            Title = 'GROUP MEMBER',
-            Text = Plr.Name .. ' (GROUP2) joined!',
-            Duration = 3,
-        })
-    end
+        if Plr:IsInGroup(GROUP2) and Plr:GetRankInGroup(GROUP2) > 0 then
+            game.StarterGui:SetCore('SendNotification', {
+                Title = 'Mod Detected',
+                Text = Plr.Name .. '  joined!',
+                Duration = 3,
+            })
+            PausedByGroup = true
+            SendWebhook(
+                '@everyone **AUTO FARM PAUSED** - `' .. Plr.Name .. '` joined!'
+            )
+        end
+    end)
 end
+
 Players.PlayerAdded:Connect(function(p)
     task.wait(1)
     check(p)
@@ -50,12 +103,42 @@ for _, p in pairs(Players:GetPlayers()) do
     end
 end
 
--- variables
+Players.PlayerRemoving:Connect(function(p)
+    if PausedByGroup then
+        task.wait(1)
+        local stillPaused = false
+        pcall(function()
+            for _, player in pairs(Players:GetPlayers()) do
+                if player ~= Players.LocalPlayer then
+                    if
+                        (
+                            player:IsInGroup(GROUP1)
+                            and player:GetRankInGroup(GROUP1) > 0
+                        )
+                        or (
+                            player:IsInGroup(GROUP2)
+                            and player:GetRankInGroup(GROUP2) > 0
+                        )
+                    then
+                        stillPaused = true
+                        break
+                    end
+                end
+            end
+        end)
+        if not stillPaused then
+            PausedByGroup = false
+            SendWebhook(
+                '@everyone **AUTO FARM RESUMED** - No more Mods detected!'
+            )
+        end
+    end
+end)
+
 local Player = Players.LocalPlayer
 local Char = Player.Character or Player.CharacterAdded:Wait()
 local Hr = Char:WaitForChild('HumanoidRootPart', 5)
 local MainEvent = ReplicatedStorage:WaitForChild('MainEvent')
-local Webhook = getgenv().UserSettings.Webhook
 local SafeMode = getgenv().UserSettings.SafeMode
 
 local DistanceLimit = 14
@@ -155,13 +238,20 @@ end
 local function TeleToDoorPos(pos)
     local offset = TeleOffset
     local finalY = pos.Y + offset.Y
-
     if SafeMode then
         finalY = finalY - 10
     end
-
     local newPos = Vector3.new(pos.X + offset.X, finalY, pos.Z + offset.Z)
     TeleToCFrameSafe(CFrame.new(newPos))
+end
+
+local function TeleToCFrameSafeWithSafeMode(cf)
+    if SafeMode then
+        local pos = cf.Position
+        local safePos = Vector3.new(pos.X, pos.Y - 10, pos.Z)
+        cf = CFrame.new(safePos, cf.Position + cf.LookVector)
+    end
+    TeleToCFrameSafe(cf)
 end
 
 local function DisableCollisions()
@@ -196,29 +286,6 @@ local function GetCandyAmount()
         return val
     end
     return 0
-end
-
-local function SendWebhook(msg)
-    local body = HttpService:JSONEncode({ content = msg })
-    pcall(function()
-        if request then
-            request({
-                Url = Webhook,
-                Method = 'POST',
-                Headers = { ['Content-Type'] = 'application/json' },
-                Body = body,
-            })
-        elseif httppost then
-            httppost(Webhook, body, 'application/json')
-        elseif http and http.request then
-            http.request({
-                Url = Webhook,
-                Method = 'POST',
-                Headers = { ['Content-Type'] = 'application/json' },
-                Body = body,
-            })
-        end
-    end)
 end
 
 local function IsPaused()
@@ -402,8 +469,32 @@ while true do
         continue
     end
 
-    -- pause if K.O or Dead
     while IsPaused() do
+        wait(0.1)
+    end
+
+    while PausedByGroup do
+        local a = GroupIdleArgs
+        local GroupIdleCf = CFrame.new(
+            a[1],
+            a[2],
+            a[3],
+            a[4],
+            a[5],
+            a[6],
+            a[7],
+            a[8],
+            a[9],
+            a[10],
+            a[11],
+            a[12]
+        )
+        TeleToCFrameSafe(GroupIdleCf)
+        local hrp = Player.Character
+            and Player.Character:FindFirstChild('HumanoidRootPart')
+        if hrp then
+            hrp.Velocity = Vector3.new(0, 0, 0)
+        end
         wait(0.1)
     end
 
