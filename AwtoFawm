@@ -1,0 +1,484 @@
+-- imeowforfun
+
+local Players = game:GetService('Players')
+local MarketplaceService = game:GetService('MarketplaceService')
+local GroupService = game:GetService('GroupService')
+local ReplicatedStorage = game:GetService('ReplicatedStorage')
+local Workspace = game:GetService('Workspace')
+local HttpService = game:GetService('HttpService')
+local RunService = game:GetService('RunService')
+
+local GROUP1 = 339846382
+local GROUP2 = 34199407
+local function check(Plr)
+    if not Plr or not Plr.Parent then
+        return
+    end
+    local info = MarketplaceService:GetProductInfo(game.PlaceId).Creator
+    if info.CreatorType == 'Group' then
+        local gid = GroupService:GetGroupInfoAsync(info.CreatorTargetId).Id
+        if Plr:IsInGroup(gid) and Plr:GetRankInGroup(gid) > 0 then
+            game.StarterGui:SetCore('SendNotification', {
+                Title = 'GROUP MEMBER',
+                Text = Plr.Name .. ' joined!',
+                Duration = 3,
+            })
+        end
+    end
+    if Plr:IsInGroup(GROUP1) and Plr:GetRankInGroup(GROUP1) > 0 then
+        game.StarterGui:SetCore('SendNotification', {
+            Title = 'GROUP MEMBER',
+            Text = Plr.Name .. ' (GROUP1) joined!',
+            Duration = 3,
+        })
+    end
+    if Plr:IsInGroup(GROUP2) and Plr:GetRankInGroup(GROUP2) > 0 then
+        game.StarterGui:SetCore('SendNotification', {
+            Title = 'GROUP MEMBER',
+            Text = Plr.Name .. ' (GROUP2) joined!',
+            Duration = 3,
+        })
+    end
+end
+Players.PlayerAdded:Connect(function(p)
+    task.wait(1)
+    check(p)
+end)
+for _, p in pairs(Players:GetPlayers()) do
+    if p ~= Players.LocalPlayer then
+        check(p)
+    end
+end
+
+-- variables
+local Player = Players.LocalPlayer
+local Char = Player.Character or Player.CharacterAdded:Wait()
+local Hr = Char:WaitForChild('HumanoidRootPart', 5)
+local MainEvent = ReplicatedStorage:WaitForChild('MainEvent')
+local Webhook = getgenv().UserSettings.Webhook
+local SafeMode = getgenv().UserSettings.SafeMode
+
+local DistanceLimit = 14
+local NotifyStep = 25
+local BasketTagExact = '[Candy Basket]'
+local IdleArgs = {
+    -253.324051,
+    -69.4246597,
+    -507.357819,
+    0.0264463127,
+    8.99513566e-08,
+    0.99965024,
+    1.02786659e-08,
+    1,
+    -9.02547583e-08,
+    -0.99965024,
+    1.26619764e-08,
+    0.0264463127,
+}
+local TeleOffset = Vector3.new(0, 0, 0)
+local AfterPick = 0.6
+local AfterTreat = 0.4
+local IdleTeleportRate = 0.05
+
+spawn(function()
+    while true do
+        if Player.Character and Player.Character:FindFirstChild('Humanoid') then
+            pcall(function()
+                Player.Character.Humanoid:UnequipTools()
+            end)
+        end
+        wait(0.01)
+    end
+end)
+
+local function PathGet(root, path)
+    local cur = root
+    for _, n in ipairs(path) do
+        if not cur then
+            return nil
+        end
+        cur = cur:FindFirstChild(n)
+    end
+    return cur
+end
+
+local function TryFireClickDetector(cd)
+    if not cd then
+        return false
+    end
+    local ok
+    ok = pcall(function()
+        fireclickdetector(cd)
+    end)
+    if ok then
+        return true
+    end
+    ok = pcall(function()
+        if cd.FireClick then
+            cd:FireClick(Player.Character or Player)
+        end
+    end)
+    if ok then
+        return true
+    end
+    ok = pcall(function()
+        if cd.MouseClick then
+            cd.MouseClick:Fire(Player)
+        end
+    end)
+    if ok then
+        return true
+    end
+    return false
+end
+
+local function TeleToCFrameSafe(cf)
+    Char = Player.Character
+    if not Char or not Char.Parent then
+        return
+    end
+    local hrp = Char:FindFirstChild('HumanoidRootPart')
+    if hrp then
+        hrp.CFrame = cf
+        task.wait(0.1)
+        hrp.Velocity = Vector3.new(0, 0, 0)
+    end
+end
+
+local function TeleToPos(pos)
+    local offset = TeleOffset
+    local newPos =
+        Vector3.new(pos.X + offset.X, pos.Y + offset.Y, pos.Z + offset.Z)
+    TeleToCFrameSafe(CFrame.new(newPos))
+end
+
+local function TeleToDoorPos(pos)
+    local offset = TeleOffset
+    local finalY = pos.Y + offset.Y
+
+    if SafeMode then
+        finalY = finalY - 10
+    end
+
+    local newPos = Vector3.new(pos.X + offset.X, finalY, pos.Z + offset.Z)
+    TeleToCFrameSafe(CFrame.new(newPos))
+end
+
+local function DisableCollisions()
+    Char = Player.Character
+    if not Char then
+        return
+    end
+    for _, v in pairs(Char:GetDescendants()) do
+        if v:IsA('BasePart') and v.CanCollide == true then
+            v.CanCollide = false
+        end
+    end
+end
+
+local function GetCandyAmount()
+    local ok, val = pcall(function()
+        local df = Player:WaitForChild('DataFolder', 3)
+        if not df then
+            return 0
+        end
+        local info = df:FindFirstChild('Information')
+        if not info then
+            return 0
+        end
+        local nv = info:FindFirstChild('CandyCollected')
+        if not nv then
+            return 0
+        end
+        return tonumber(nv.Value) or 0
+    end)
+    if ok and val then
+        return val
+    end
+    return 0
+end
+
+local function SendWebhook(msg)
+    local body = HttpService:JSONEncode({ content = msg })
+    pcall(function()
+        if request then
+            request({
+                Url = Webhook,
+                Method = 'POST',
+                Headers = { ['Content-Type'] = 'application/json' },
+                Body = body,
+            })
+        elseif httppost then
+            httppost(Webhook, body, 'application/json')
+        elseif http and http.request then
+            http.request({
+                Url = Webhook,
+                Method = 'POST',
+                Headers = { ['Content-Type'] = 'application/json' },
+                Body = body,
+            })
+        end
+    end)
+end
+
+local function IsPaused()
+    local be = PathGet(
+        Workspace,
+        { 'Players', 'Characters', Player.Name, 'BodyEffects' }
+    )
+    if be then
+        local ko = be:FindFirstChild('K.O')
+        local dead = be:FindFirstChild('Dead')
+        if ko and ko.Value == true then
+            return true
+        end
+        if dead and dead.Value == true then
+            return true
+        end
+    end
+    return false
+end
+
+local function FindBasket()
+    local shop = PathGet(Workspace, { 'FFA_MAP', 'Shop' })
+    if not shop then
+        shop = nil
+        for _, d in pairs(Workspace:GetDescendants()) do
+            if d.Name == 'Shop' and d.Parent and d.Parent.Name == 'FFA_MAP' then
+                shop = d
+                break
+            end
+        end
+    end
+    if not shop then
+        return nil
+    end
+    for _, m in pairs(shop:GetDescendants()) do
+        if m:IsA('Model') then
+            for _, sv in pairs(m:GetChildren()) do
+                if sv:IsA('StringValue') and sv.Value == BasketTagExact then
+                    return m
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function HasBasket()
+    local bp = Player:FindFirstChild('Backpack')
+    local ch = Player.Character
+    if bp then
+        for _, v in pairs(bp:GetChildren()) do
+            if v.Name == 'Candy Basket' or v.Name:find('Basket') then
+                return true
+            end
+        end
+    end
+    if ch then
+        for _, v in pairs(ch:GetChildren()) do
+            if v.Name == 'Candy Basket' or v.Name:find('Basket') then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function TryGrabBasket()
+    if HasBasket() then
+        return true
+    end
+    local m = FindBasket()
+    if not m then
+        return false
+    end
+    local target
+    if m.PrimaryPart then
+        target = m.PrimaryPart.Position
+    else
+        local any = m:FindFirstChildWhichIsA('BasePart')
+        if any then
+            target = any.Position
+        end
+    end
+    if not target then
+        return false
+    end
+    TeleToPos(target)
+    wait(AfterPick)
+    for _, d in pairs(m:GetDescendants()) do
+        if d:IsA('ClickDetector') then
+            TryFireClickDetector(d)
+        end
+    end
+    wait(AfterPick)
+    return HasBasket()
+end
+
+local function GetAvailableDoors()
+    local root =
+        PathGet(Workspace, { 'FFA_MAP', 'INTERACTABLE_FILLBUILDING_DOORS' })
+    if not root then
+        return {}
+    end
+    local list = {}
+    for _, m in pairs(root:GetChildren()) do
+        if m:IsA('Model') then
+            local closed = m:FindFirstChild('CLOSED')
+            local open = m:FindFirstChild('OPEN')
+            if
+                closed
+                and open
+                and closed:FindFirstChild('DOOR')
+                and open:FindFirstChild('DOOR')
+            then
+                local stars = closed.DOOR:FindFirstChild('Stars')
+                if not stars or stars.Enabled == true then
+                    table.insert(list, m)
+                end
+            end
+        end
+    end
+    return list
+end
+
+local function NearestDoor(list)
+    local best, bd = nil, math.huge
+    for _, m in pairs(list) do
+        local open = m:FindFirstChild('OPEN')
+        if open and open:FindFirstChild('DOOR') then
+            local pos = open.DOOR.Position
+            local d = (Player.Character.HumanoidRootPart.Position - pos).magnitude
+            if d < bd then
+                best, bd = { Model = m, Pos = pos, Dist = d }, d
+            end
+        end
+    end
+    return best
+end
+
+local function TreatDoor(d)
+    if not d or not d.Model then
+        return false
+    end
+    TeleToDoorPos(d.Pos)
+
+    repeat
+        task.wait()
+    until (Player.Character.HumanoidRootPart.Position - d.Pos).magnitude
+        <= DistanceLimit
+
+    pcall(function()
+        MainEvent:FireServer('TRICK_OR_TREAT', d.Model)
+    end)
+
+    wait(AfterTreat)
+    return true
+end
+
+local function OnChar(c)
+    Char = c
+    Hr = Char:WaitForChild('HumanoidRootPart', 5)
+    wait(0.15)
+    DisableCollisions()
+    pcall(TryGrabBasket)
+end
+
+if Player.Character then
+    OnChar(Player.Character)
+end
+Player.CharacterAdded:Connect(OnChar)
+
+wait(0.2)
+local PrevBase = GetCandyAmount()
+SendWebhook(('Auto TrickOrTreat started. Current candy: %d'):format(PrevBase))
+
+local StoredBase = PrevBase
+
+while true do
+    if not Player or not Player.Character or not Player.Character.Parent then
+        wait(0.1)
+        continue
+    end
+
+    -- pause if K.O or Dead
+    while IsPaused() do
+        wait(0.1)
+    end
+
+    DisableCollisions()
+
+    if not HasBasket() then
+        TryGrabBasket()
+        wait(0.1)
+    end
+
+    local Doors = GetAvailableDoors()
+    if #Doors == 0 then
+        local a = IdleArgs
+        local IdleCf = CFrame.new(
+            a[1],
+            a[2],
+            a[3],
+            a[4],
+            a[5],
+            a[6],
+            a[7],
+            a[8],
+            a[9],
+            a[10],
+            a[11],
+            a[12]
+        )
+        while true do
+            if #GetAvailableDoors() > 0 then
+                break
+            end
+            TeleToCFrameSafe(IdleCf)
+            local hrp = Player.Character
+                and Player.Character:FindFirstChild('HumanoidRootPart')
+            if hrp then
+                hrp.Velocity = Vector3.new(0, 0, 0)
+            end
+            wait(IdleTeleportRate)
+        end
+        local cur = GetCandyAmount()
+        if cur - StoredBase >= NotifyStep then
+            SendWebhook(
+                ('Candy increased by %d. Current candy: %d'):format(
+                    cur - StoredBase,
+                    cur
+                )
+            )
+            StoredBase = cur
+        end
+        continue
+    end
+
+    local Target = NearestDoor(Doors)
+    if Target then
+        if Target.Dist and Target.Dist <= DistanceLimit then
+            TreatDoor(Target)
+        else
+            TeleToDoorPos(Target.Pos)
+            wait(0.06)
+            if
+                (Player.Character.HumanoidRootPart.Position - Target.Pos).magnitude
+                <= DistanceLimit
+            then
+                TreatDoor(Target)
+            end
+        end
+    end
+
+    local new = GetCandyAmount()
+    if new - StoredBase >= NotifyStep then
+        SendWebhook(
+            ('Auto TrickOrTreat: Candy now %d (was %d)'):format(new, StoredBase)
+        )
+        StoredBase = new
+    end
+
+    wait(0.06)
+end
