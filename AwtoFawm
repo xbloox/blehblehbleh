@@ -42,86 +42,92 @@ local function LowGfxMode()
     local RunService = game:GetService('RunService')
     local Terrain = workspace:FindFirstChildWhichIsA('Terrain')
 
-    pcall(function()
-        if Terrain then
-            Terrain.WaterWaveSize = 0
-            Terrain.WaterWaveSpeed = 0
-            Terrain.WaterReflectance = 0
-            Terrain.WaterTransparency = 1
-        end
-    end)
+    if Terrain then
+        Terrain.WaterWaveSize = 0
+        Terrain.WaterWaveSpeed = 0
+        Terrain.WaterReflectance = 0
+        Terrain.WaterTransparency = 1
+        Terrain.Decoration = false
+    end
 
-    pcall(function()
-        Lighting.GlobalShadows = false
-        Lighting.FogStart = 9e9
-        Lighting.FogEnd = 9e9
-    end)
-
+    Lighting.GlobalShadows = false
+    Lighting.FogStart = 9e9
+    Lighting.FogEnd = 9e9
+    Lighting.Brightness = 0
+    Lighting.ClockTime = 12
     pcall(function()
         settings().Rendering.QualityLevel = 1
     end)
 
     for _, v in ipairs(game:GetDescendants()) do
-        pcall(function()
-            if v:IsA('BasePart') then
-                v.CastShadow = false
-                v.Material = Enum.Material.Plastic
-                v.Reflectance = 0
-            elseif v:IsA('Decal') then
-                v.Transparency = 1
-                v.Texture = ''
-            elseif v:IsA('ParticleEmitter') or v:IsA('Trail') then
-                v.Lifetime = NumberRange.new(0, 0)
-                v.Rate = 0
-                v.Enabled = false
-            end
-        end)
+        if v:IsA('BasePart') then
+            v.CastShadow = false
+            v.Material = Enum.Material.Plastic
+            v.Reflectance = 0
+            v.BackSurface = Enum.SurfaceType.SmoothNoOutlines
+            v.BottomSurface = Enum.SurfaceType.SmoothNoOutlines
+            v.FrontSurface = Enum.SurfaceType.SmoothNoOutlines
+            v.LeftSurface = Enum.SurfaceType.SmoothNoOutlines
+            v.RightSurface = Enum.SurfaceType.SmoothNoOutlines
+            v.TopSurface = Enum.SurfaceType.SmoothNoOutlines
+        elseif v:IsA('Decal') then
+            v.Transparency = 1
+            v.Texture = ''
+        elseif v:IsA('ParticleEmitter') then
+            v.Lifetime = NumberRange.new(0, 0)
+            v.Rate = 0
+            v.Enabled = false
+        elseif v:IsA('Trail') then
+            v.Enabled = false
+            v.Lifetime = NumberRange.new(0, 0)
+        end
     end
 
-    pcall(function()
-        for _, v in ipairs(Lighting:GetDescendants()) do
-            if v:IsA('PostEffect') then
-                v.Enabled = false
-            end
+    for _, v in ipairs(Lighting:GetDescendants()) do
+        if v:IsA('PostEffect') then
+            v.Enabled = false
         end
-    end)
+    end
 
-    pcall(function()
-        local atm = Lighting:FindFirstChildOfClass('Atmosphere')
-        if atm then atm.Density = 0 end
-
-        local bloom = Lighting:FindFirstChildOfClass('BloomEffect')
-        if bloom then bloom.Enabled = false end
-
-        local dof = Lighting:FindFirstChildOfClass('DepthOfFieldEffect')
-        if dof then dof.Enabled = false end
-
-        local color = Lighting:FindFirstChildOfClass('ColorCorrectionEffect')
-        if color then color.Enabled = false end
-
-        local sun = Lighting:FindFirstChildOfClass('SunRaysEffect')
-        if sun then sun.Enabled = false end
-    end)
+    if Lighting:FindFirstChildOfClass('Atmosphere') then
+        Lighting.Atmosphere.Density = 0
+    end
+    if Lighting:FindFirstChildOfClass('BloomEffect') then
+        Lighting.BloomEffect.Enabled = false
+    end
+    if Lighting:FindFirstChildOfClass('DepthOfFieldEffect') then
+        Lighting.DepthOfFieldEffect.Enabled = false
+    end
+    if Lighting:FindFirstChildOfClass('ColorCorrectionEffect') then
+        Lighting.ColorCorrectionEffect.Enabled = false
+    end
+    if Lighting:FindFirstChildOfClass('SunRaysEffect') then
+        Lighting.SunRaysEffect.Enabled = false
+    end
+    if Lighting:FindFirstChildOfClass('Sky') then
+        Lighting.Sky:Destroy()
+    end
 
     workspace.DescendantAdded:Connect(function(child)
         task.defer(function()
-            pcall(function()
-                if
-                    child:IsA('ForceField')
-                    or child:IsA('Sparkles')
-                    or child:IsA('Smoke')
-                    or child:IsA('Fire')
-                    or child:IsA('Beam')
-                then
-                    child:Destroy()
-                elseif child:IsA('BasePart') then
-                    child.CastShadow = false
-                elseif child:IsA('ParticleEmitter') or child:IsA('Trail') then
-                    child.Lifetime = NumberRange.new(0, 0)
-                    child.Rate = 0
-                    child.Enabled = false
-                end
-            end)
+            if
+                child:IsA('ForceField')
+                or child:IsA('Sparkles')
+                or child:IsA('Smoke')
+                or child:IsA('Fire')
+                or child:IsA('Beam')
+            then
+                child:Destroy()
+            elseif child:IsA('BasePart') then
+                child.CastShadow = false
+            elseif child:IsA('ParticleEmitter') then
+                child.Lifetime = NumberRange.new(0, 0)
+                child.Rate = 0
+                child.Enabled = false
+            elseif child:IsA('Trail') then
+                child.Enabled = false
+                child.Lifetime = NumberRange.new(0, 0)
+            end
         end)
     end)
 end
