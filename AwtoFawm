@@ -12,6 +12,27 @@ local HttpService = game:GetService('HttpService')
 local RunService = game:GetService('RunService')
 local Webhook = getgenv().UserSettings.Webhook
 
+local function AntiAFK()
+    local Player = game:GetService('Players').LocalPlayer
+    local VirtualUser = game:GetService('VirtualUser')
+    if getconnections then
+        for _, conn in pairs(getconnections(Player.Idled)) do
+            if conn.Disable then
+                conn:Disable()
+            elseif conn.Disconnect then
+                conn:Disconnect()
+            end
+        end
+    else
+        Player.Idled:Connect(function()
+            VirtualUser:CaptureController()
+            VirtualUser:ClickButton2(Vector2.new())
+        end)
+    end
+end
+
+AntiAFK()
+
 local function SendWebhook(msg)
     local body = HttpService:JSONEncode({ content = msg })
     pcall(function()
@@ -82,7 +103,7 @@ spawn(function()
                 end)
             end
         end
-        task.wait(0.1) 
+        task.wait(0.1)
     end
 end)
 
@@ -131,7 +152,7 @@ local function check(Plr)
 end
 
 Players.PlayerAdded:Connect(function(p)
-    task.wait(0.01) 
+    task.wait(0.01)
     check(p)
 end)
 for _, p in pairs(Players:GetPlayers()) do
@@ -213,7 +234,7 @@ local SafePositions = {
 
 local TeleOffset = Vector3.new(0, 0, 0)
 local AfterPick = 0.3
-local DoorStayTime = 1.0 
+local DoorStayTime = 1.0
 
 local RunServiceConnection
 local LastCandy = 0
@@ -527,7 +548,7 @@ local function TreatDoor(d)
         TeleToSafeSpot()
     end
 
-    return GetCandyAmount() > GetCandyAmount() 
+    return GetCandyAmount() > GetCandyAmount()
 end
 
 local function WaitForTools()
@@ -549,7 +570,7 @@ local function OnChar(c)
         return
     end
 
-    task.wait(2) 
+    task.wait(2)
     DisableCollisions()
     WaitForTools()
     pcall(TryGrabBasket)
@@ -561,9 +582,7 @@ end
 Player.CharacterAdded:Connect(OnChar)
 
 local initialCandy = GetCandyAmount()
-SendWebhook(
-    '**Auto TrickOrTreat STARTED** - Current candy: ' .. initialCandy
-)
+SendWebhook('**Auto TrickOrTreat STARTED** - Current candy: ' .. initialCandy)
 LastCandy = initialCandy
 StoredBase = initialCandy
 StartTime = tick()
