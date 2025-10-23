@@ -548,7 +548,7 @@ local function TreatDoor(d)
         TeleToSafeSpot()
     end
 
-    return GetCandyAmount() > GetCandyAmount()
+    return true
 end
 
 local function WaitForTools()
@@ -681,6 +681,7 @@ RunServiceConnection = RunService.Heartbeat:Connect(function()
 
     if targetDoor then
         TreatDoor(targetDoor)
+        task.wait(0.1) 
     end
 
     local currentCandy = GetCandyAmount()
