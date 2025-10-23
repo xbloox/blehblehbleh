@@ -34,47 +34,65 @@ end
 AntiAFK()
 
 local function LowGfxMode()
-    if not getgenv().Lowgfx then
+    if not (getgenv().UserSettings and getgenv().UserSettings.Lowgfx) then
         return
     end
     local Lighting = game:GetService('Lighting')
     local RunService = game:GetService('RunService')
     local Terrain = workspace:FindFirstChildWhichIsA('Terrain')
+
     if Terrain then
         Terrain.WaterWaveSize = 0
         Terrain.WaterWaveSpeed = 0
         Terrain.WaterReflectance = 0
         Terrain.WaterTransparency = 1
     end
+
     Lighting.GlobalShadows = false
-    Lighting.FogEnd = 9e9
     Lighting.FogStart = 9e9
-    settings().Rendering.QualityLevel = 1
-    for _, v in pairs(game:GetDescendants()) do
+    Lighting.FogEnd = 9e9
+    pcall(function()
+        settings().Rendering.QualityLevel = 1
+    end)
+
+    for _, v in ipairs(game:GetDescendants()) do
         if v:IsA('BasePart') then
             v.CastShadow = false
-            v.Material = 'Plastic'
+            v.Material = Enum.Material.Plastic
             v.Reflectance = 0
-            v.BackSurface = 'SmoothNoOutlines'
-            v.BottomSurface = 'SmoothNoOutlines'
-            v.FrontSurface = 'SmoothNoOutlines'
-            v.LeftSurface = 'SmoothNoOutlines'
-            v.RightSurface = 'SmoothNoOutlines'
-            v.TopSurface = 'SmoothNoOutlines'
         elseif v:IsA('Decal') then
             v.Transparency = 1
             v.Texture = ''
         elseif v:IsA('ParticleEmitter') or v:IsA('Trail') then
-            v.Lifetime = NumberRange.new(0)
+            v.Lifetime = NumberRange.new(0, 0)
+            v.Rate = 0
+            v.Enabled = false
         end
     end
-    for _, v in pairs(Lighting:GetDescendants()) do
+
+    for _, v in ipairs(Lighting:GetDescendants()) do
         if v:IsA('PostEffect') then
             v.Enabled = false
         end
     end
+    if Lighting:FindFirstChildOfClass('Atmosphere') then
+        Lighting.Atmosphere.Density = 0
+    end
+    if Lighting:FindFirstChildOfClass('BloomEffect') then
+        Lighting:FindFirstChildOfClass('BloomEffect').Enabled = false
+    end
+    if Lighting:FindFirstChildOfClass('DepthOfFieldEffect') then
+        Lighting:FindFirstChildOfClass('DepthOfFieldEffect').Enabled = false
+    end
+    if Lighting:FindFirstChildOfClass('ColorCorrectionEffect') then
+        Lighting:FindFirstChildOfClass('ColorCorrectionEffect').Enabled = false
+    end
+    if Lighting:FindFirstChildOfClass('SunRaysEffect') then
+        Lighting:FindFirstChildOfClass('SunRaysEffect').Enabled = false
+    end
+
     workspace.DescendantAdded:Connect(function(child)
-        task.spawn(function()
+        task.defer(function()
             if
                 child:IsA('ForceField')
                 or child:IsA('Sparkles')
@@ -82,10 +100,13 @@ local function LowGfxMode()
                 or child:IsA('Fire')
                 or child:IsA('Beam')
             then
-                RunService.Heartbeat:Wait()
                 child:Destroy()
             elseif child:IsA('BasePart') then
                 child.CastShadow = false
+            elseif child:IsA('ParticleEmitter') or child:IsA('Trail') then
+                child.Lifetime = NumberRange.new(0, 0)
+                child.Rate = 0
+                child.Enabled = false
             end
         end)
     end)
@@ -94,10 +115,8 @@ end
 LowGfxMode()
 
 local function NoRenderMode()
-    local RunService = game:GetService('RunService')
-    RunService:Set3dRenderingEnabled(
-        not not getgenv().Norender and false or true
-    )
+    local norender = getgenv().UserSettings and getgenv().UserSettings.Norender
+    game:GetService('RunService'):Set3dRenderingEnabled(not norender)
 end
 
 NoRenderMode()
@@ -268,7 +287,7 @@ local MainEvent = ReplicatedStorage:WaitForChild('MainEvent')
 local SafeMode = getgenv().UserSettings.SafeMode
 
 local DistanceLimit = 15
-local NotifyStep = 50
+local NotifyStep = 100
 local BasketTagExact = '[Candy Basket]'
 local IdleArgs = {
     -253.324051,
