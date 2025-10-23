@@ -268,7 +268,7 @@ local MainEvent = ReplicatedStorage:WaitForChild('MainEvent')
 local SafeMode = getgenv().UserSettings.SafeMode
 
 local DistanceLimit = 15
-local NotifyStep = 500
+local NotifyStep = 50
 local BasketTagExact = '[Candy Basket]'
 local IdleArgs = {
     -253.324051,
