@@ -54,6 +54,38 @@ local GroupIdleArgs = {
     0.038368497,
 }
 
+spawn(function()
+    while true do
+        if PausedByGroup then
+            task.wait(0.1)
+            continue
+        end
+
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= Players.LocalPlayer then
+                pcall(function()
+                    if
+                        (p:IsInGroup(GROUP1) and p:GetRankInGroup(GROUP1) > 0)
+                        or (
+                            p:IsInGroup(GROUP2)
+                            and p:GetRankInGroup(GROUP2) > 0
+                        )
+                    then
+                        PausedByGroup = true
+                        SendWebhook(
+                            '@everyone **AUTO FARM PAUSED** MOD JOINED - `'
+                                .. p.Name
+                                .. '`'
+                        )
+                        return
+                    end
+                end)
+            end
+        end
+        task.wait(0.1) 
+    end
+end)
+
 local function check(Plr)
     if not Plr or not Plr.Parent or not Plr:IsA('Player') then
         return
@@ -79,9 +111,9 @@ local function check(Plr)
             })
             PausedByGroup = true
             SendWebhook(
-                '@everyone **AUTO FARM PAUSED** MOD JOINED -`'
+                '@everyone **AUTO FARM PAUSED** MOD JOINED - `'
                     .. Plr.Name
-                    .. '` joined!'
+                    .. '`'
             )
         end
         if Plr:IsInGroup(GROUP2) and Plr:GetRankInGroup(GROUP2) > 0 then
@@ -99,7 +131,7 @@ local function check(Plr)
 end
 
 Players.PlayerAdded:Connect(function(p)
-    task.wait(1)
+    task.wait(0.01) 
     check(p)
 end)
 for _, p in pairs(Players:GetPlayers()) do
@@ -110,7 +142,7 @@ end
 
 Players.PlayerRemoving:Connect(function(p)
     if PausedByGroup then
-        task.wait(1)
+        task.wait(0.01)
         local stillPaused = false
         pcall(function()
             for _, player in pairs(Players:GetPlayers()) do
@@ -142,12 +174,11 @@ end)
 
 local Player = Players.LocalPlayer
 local Char = Player.Character or Player.CharacterAdded:Wait()
-local Hr = Char:WaitForChild('HumanoidRootPart', 5)
 local MainEvent = ReplicatedStorage:WaitForChild('MainEvent')
 local SafeMode = getgenv().UserSettings.SafeMode
 
 local DistanceLimit = 15
-local NotifyStep = 25
+local NotifyStep = 500
 local BasketTagExact = '[Candy Basket]'
 local IdleArgs = {
     -253.324051,
@@ -165,36 +196,31 @@ local IdleArgs = {
 }
 
 local SafePositions = {
-    Vector3.new(-337, 36, -253),
-    Vector3.new(-444, 36, -207),
-    Vector3.new(-64, 36, -622),
-    Vector3.new(-485, 36, -104),
-    Vector3.new(-211, 36, -723),
-    Vector3.new(-823, 36, -492),
-    Vector3.new(-632, 36, -285),
-    Vector3.new(-611, 36, -621),
-    Vector3.new(94, 37, -448),
-    Vector3.new(-121, 37, -310),
-    Vector3.new(-190, 37, -101),
-    Vector3.new(-254, 36, -187),
-    Vector3.new(-543, 36, -103),
+    Vector3.new(-342, 36, -253),
+    Vector3.new(-445, 36, -202),
+    Vector3.new(-64, 36, -617),
+    Vector3.new(-484, 36, -109),
+    Vector3.new(-208, 36, -723),
+    Vector3.new(-820, 36, -492),
+    Vector3.new(-626, 36, -285),
+    Vector3.new(-611, 36, -616),
+    Vector3.new(88, 37, -448),
+    Vector3.new(-127, 37, -310),
+    Vector3.new(-190, 37, -106),
+    Vector3.new(-255, 36, -182),
+    Vector3.new(-543, 36, -109),
 }
 
 local TeleOffset = Vector3.new(0, 0, 0)
-local AfterPick = 0.6
-local AfterTreat = SafeMode and 0.45 or 0.4
-local IdleTeleportRate = 0.05
+local AfterPick = 0.3
+local DoorStayTime = 1.0 
 
-spawn(function()
-    while true do
-        if Player.Character and Player.Character:FindFirstChild('Humanoid') then
-            pcall(function()
-                Player.Character.Humanoid:UnequipTools()
-            end)
-        end
-        wait(0.01)
-    end
-end)
+local RunServiceConnection
+local LastCandy = 0
+local StartTime = tick()
+local StoredBase = 0
+local MaxCandy = 3000
+local IsFarming = true
 
 local function PathGet(root, path)
     local cur = root
@@ -207,17 +233,15 @@ local function PathGet(root, path)
     return cur
 end
 
-local function TeleToCFrameSafe(cf)
-    Char = Player.Character
-    if not Char or not Char.Parent then
+local function TeleToCFrame(cf)
+    if
+        not Player.Character
+        or not Player.Character:FindFirstChild('HumanoidRootPart')
+    then
         return
     end
-    local hrp = Char:FindFirstChild('HumanoidRootPart')
-    if hrp then
-        hrp.CFrame = cf
-        task.wait(0.1)
-        hrp.Velocity = Vector3.new(0, 0, 0)
-    end
+    Player.Character.HumanoidRootPart.CFrame = cf
+    Player.Character.HumanoidRootPart.Velocity = Vector3.new(0, 0, 0)
 end
 
 local function TeleToSafeSpot()
@@ -225,65 +249,35 @@ local function TeleToSafeSpot()
         return
     end
     local pos = SafePositions[math.random(1, #SafePositions)]
-    TeleToCFrameSafe(CFrame.new(pos))
-    local hrp = Player.Character
-        and Player.Character:FindFirstChild('HumanoidRootPart')
-    if hrp then
-        hrp.Velocity = Vector3.zero
-    end
+    TeleToCFrame(CFrame.new(pos))
 end
 
 local function TryFireClickDetector(cd)
     if not cd then
         return false
     end
-    local ok
-    ok = pcall(function()
+    pcall(function()
         fireclickdetector(cd)
     end)
-    if ok then
-        return true
-    end
-    ok = pcall(function()
+    pcall(function()
         if cd.FireClick then
-            cd:FireClick(Player.Character or Player)
+            cd:FireClick(Player)
         end
     end)
-    if ok then
-        return true
-    end
-    ok = pcall(function()
+    pcall(function()
         if cd.MouseClick then
             cd.MouseClick:Fire(Player)
         end
     end)
-    if ok then
-        return true
-    end
-    return false
-end
-
-local function TeleToPos(pos)
-    local offset = TeleOffset
-    local newPos =
-        Vector3.new(pos.X + offset.X, pos.Y + offset.Y, pos.Z + offset.Z)
-    TeleToCFrameSafe(CFrame.new(newPos))
-end
-
-local function TeleToDoorPos(pos)
-    local offset = TeleOffset
-    local finalY = pos.Y + offset.Y
-    local newPos = Vector3.new(pos.X + offset.X, finalY, pos.Z + offset.Z)
-    TeleToCFrameSafe(CFrame.new(newPos))
+    return true
 end
 
 local function DisableCollisions()
-    Char = Player.Character
-    if not Char then
+    if not Player.Character then
         return
     end
-    for _, v in pairs(Char:GetDescendants()) do
-        if v:IsA('BasePart') and v.CanCollide == true then
+    for _, v in pairs(Player.Character:GetDescendants()) do
+        if v:IsA('BasePart') and v.CanCollide then
             v.CanCollide = false
         end
     end
@@ -291,7 +285,7 @@ end
 
 local function GetCandyAmount()
     local ok, val = pcall(function()
-        local df = Player:WaitForChild('DataFolder', 3)
+        local df = Player:WaitForChild('DataFolder', 1)
         if not df then
             return 0
         end
@@ -305,19 +299,13 @@ local function GetCandyAmount()
         end
         return tonumber(nv.Value) or 0
     end)
-    if ok and val then
-        return val
-    end
-    return 0
+    return ok and val or 0
 end
 
-local LastCandy = GetCandyAmount()
-local LastCandyUpdate = tick()
-local LastDoorCandy = 0
-local DoorTryTime = 2
-local CandyTimeout = 60
-
 local function IsPaused()
+    if not Player.Character then
+        return true
+    end
     local be = PathGet(
         Workspace,
         { 'Players', 'Characters', Player.Name, 'BodyEffects' }
@@ -325,40 +313,9 @@ local function IsPaused()
     if be then
         local ko = be:FindFirstChild('K.O')
         local dead = be:FindFirstChild('Dead')
-        if ko and ko.Value == true then
-            return true
-        end
-        if dead and dead.Value == true then
-            return true
-        end
+        return (ko and ko.Value == true) or (dead and dead.Value == true)
     end
     return false
-end
-
-local function FindBasket()
-    local shop = PathGet(Workspace, { 'FFA_MAP', 'Shop' })
-    if not shop then
-        shop = nil
-        for _, d in pairs(Workspace:GetDescendants()) do
-            if d.Name == 'Shop' and d.Parent and d.Parent.Name == 'FFA_MAP' then
-                shop = d
-                break
-            end
-        end
-    end
-    if not shop then
-        return nil
-    end
-    for _, m in pairs(shop:GetDescendants()) do
-        if m:IsA('Model') then
-            for _, sv in pairs(m:GetChildren()) do
-                if sv:IsA('StringValue') and sv.Value == BasketTagExact then
-                    return m
-                end
-            end
-        end
-    end
-    return nil
 end
 
 local function HasBasket()
@@ -381,6 +338,31 @@ local function HasBasket()
     return false
 end
 
+local function FindBasket()
+    local shop = PathGet(Workspace, { 'FFA_MAP', 'Shop' })
+    if not shop then
+        for _, d in pairs(Workspace:GetDescendants()) do
+            if d.Name == 'Shop' and d.Parent and d.Parent.Name == 'FFA_MAP' then
+                shop = d
+                break
+            end
+        end
+    end
+    if not shop then
+        return nil
+    end
+    for _, m in pairs(shop:GetDescendants()) do
+        if m:IsA('Model') then
+            for _, sv in pairs(m:GetChildren()) do
+                if sv:IsA('StringValue') and sv.Value == BasketTagExact then
+                    return m
+                end
+            end
+        end
+    end
+    return nil
+end
+
 local function TryGrabBasket()
     if HasBasket() then
         return true
@@ -389,26 +371,20 @@ local function TryGrabBasket()
     if not m then
         return false
     end
-    local target
-    if m.PrimaryPart then
-        target = m.PrimaryPart.Position
-    else
-        local any = m:FindFirstChildWhichIsA('BasePart')
-        if any then
-            target = any.Position
-        end
-    end
+    local target = m.PrimaryPart and m.PrimaryPart.Position
+        or m:FindFirstChildWhichIsA('BasePart')
+            and m:FindFirstChildWhichIsA('BasePart').Position
     if not target then
         return false
     end
-    TeleToPos(target)
-    wait(AfterPick)
+    TeleToCFrame(CFrame.new(target))
+    task.wait(AfterPick)
     for _, d in pairs(m:GetDescendants()) do
         if d:IsA('ClickDetector') then
             TryFireClickDetector(d)
         end
     end
-    wait(AfterPick)
+    task.wait(AfterPick)
     return HasBasket()
 end
 
@@ -458,31 +434,52 @@ local function GetAvailableDoors()
             table.insert(list, m)
         end
     end
-
     return list
 end
 
-local function FindNearestSafeToDoor(doorPos)
-    local nearest, shortestDist = nil, math.huge
-    for _, safePos in ipairs(SafePositions) do
-        local dist = (Vector3.new(safePos.X, safePos.Y, safePos.Z) - doorPos).Magnitude
-        if dist < shortestDist then
-            shortestDist = dist
-            nearest = safePos
+local function GetBestSafeModeDoor(doors)
+    if not SafeMode then
+        return nil
+    end
+    local bestDoor, bestScore = nil, math.huge
+
+    for _, door in pairs(doors) do
+        local doorPos = door.OPEN.DOOR.Position
+        local closestSafeDist = math.huge
+
+        for _, safePos in pairs(SafePositions) do
+            local dist = (
+                Vector3.new(safePos.X, safePos.Y, safePos.Z) - doorPos
+            ).Magnitude
+            closestSafeDist = math.min(closestSafeDist, dist)
+        end
+
+        if closestSafeDist < bestScore then
+            bestScore = closestSafeDist
+            bestDoor = { Model = door, Pos = doorPos, Score = closestSafeDist }
         end
     end
-    return nearest
+
+    return bestDoor
 end
 
-local function NearestDoor(list)
-    local best, bd = nil, math.huge
-    for _, m in pairs(list) do
+local function GetNearestDoor(doors)
+    if
+        not Player.Character
+        or not Player.Character:FindFirstChild('HumanoidRootPart')
+    then
+        return nil
+    end
+
+    local best, bestDist = nil, math.huge
+    for _, m in pairs(doors) do
         local open = m:FindFirstChild('OPEN')
         if open and open:FindFirstChild('DOOR') then
             local pos = open.DOOR.Position
-            local d = (Player.Character.HumanoidRootPart.Position - pos).magnitude
-            if d < bd then
-                best, bd = { Model = m, Pos = pos, Dist = d }, d
+            local dist = (Player.Character.HumanoidRootPart.Position - pos).Magnitude
+            if dist < bestDist then
+                bestDist = dist
+                best = { Model = m, Pos = pos, Dist = dist }
             end
         end
     end
@@ -490,65 +487,71 @@ local function NearestDoor(list)
 end
 
 local function TreatDoor(d)
-    if not d or not d.Model then
+    if
+        not d
+        or not d.Model
+        or not Player.Character
+        or not Player.Character:FindFirstChild('HumanoidRootPart')
+    then
         return false
     end
 
-    local success = false
-
     if SafeMode then
-        local nearestSafePos = FindNearestSafeToDoor(d.Pos)
-        TeleToCFrameSafe(CFrame.new(nearestSafePos))
-        task.wait(0.2) 
+        TeleToSafeSpot()
     else
-        TeleToDoorPos(d.Pos)
-        task.wait(0.06)
+        TeleToCFrame(CFrame.new(d.Pos))
     end
 
-    local timeout = tick() + 3
+    local timeout = tick() + 2
     repeat
-        task.wait(0.05)
-    until (Player.Character.HumanoidRootPart.Position - d.Pos).magnitude
+        task.wait(0.01)
+    until (Player.Character.HumanoidRootPart.Position - d.Pos).Magnitude
             <= DistanceLimit
         or tick() > timeout
 
     if
-        (Player.Character.HumanoidRootPart.Position - d.Pos).magnitude
+        (Player.Character.HumanoidRootPart.Position - d.Pos).Magnitude
         > DistanceLimit
     then
         return false
     end
 
-    pcall(function()
-        for i = 1, 4 do
-            MainEvent:FireServer('TRICK_OR_TREAT', d.Model)
-            task.wait(0.05)
-        end
-    end)
+    for i = 1, 3 do
+        MainEvent:FireServer('TRICK_OR_TREAT', d.Model)
+        task.wait(0.03)
+    end
 
-    local before = GetCandyAmount()
-    local checkStart = tick()
-    repeat
-        task.wait(0.25)
-        local nowCandy = GetCandyAmount()
-        if nowCandy > before then
-            return true
-        end
-    until tick() - checkStart > DoorTryTime
+    task.wait(DoorStayTime)
 
     if SafeMode then
-        task.wait(0.3)
         TeleToSafeSpot()
     end
 
+    return GetCandyAmount() > GetCandyAmount() - 
+end
+
+local function WaitForTools()
+    local attempts = 0
+    while attempts < 20 do
+        if Player.Backpack and #Player.Backpack:GetChildren() > 0 then
+            return true
+        end
+        attempts = attempts + 1
+        task.wait(0.1)
+    end
     return false
 end
 
 local function OnChar(c)
     Char = c
-    Hr = Char:WaitForChild('HumanoidRootPart', 5)
-    wait(0.15)
+    local hrp = c:WaitForChild('HumanoidRootPart', 5)
+    if not hrp then
+        return
+    end
+
+    task.wait(2) 
     DisableCollisions()
+    WaitForTools()
     pcall(TryGrabBasket)
 end
 
@@ -557,139 +560,153 @@ if Player.Character then
 end
 Player.CharacterAdded:Connect(OnChar)
 
-wait(0.2)
-local PrevBase = GetCandyAmount()
-SendWebhook(('Auto TrickOrTreat started. Current candy: %d'):format(PrevBase))
+local initialCandy = GetCandyAmount()
+SendWebhook(
+    '**Auto TrickOrTreat STARTED** - Current candy: ' .. initialCandy
+)
+LastCandy = initialCandy
+StoredBase = initialCandy
+StartTime = tick()
 
-local StoredBase = PrevBase
+local hasTeleportedToGroupIdle = false
+spawn(function()
+    while true do
+        if
+            PausedByGroup
+            and Player.Character
+            and not hasTeleportedToGroupIdle
+        then
+            local cf = CFrame.new(
+                GroupIdleArgs[1],
+                GroupIdleArgs[2],
+                GroupIdleArgs[3],
+                GroupIdleArgs[4],
+                GroupIdleArgs[5],
+                GroupIdleArgs[6],
+                GroupIdleArgs[7],
+                GroupIdleArgs[8],
+                GroupIdleArgs[9],
+                GroupIdleArgs[10],
+                GroupIdleArgs[11],
+                GroupIdleArgs[12]
+            )
+            TeleToCFrame(cf)
+            hasTeleportedToGroupIdle = true
+        elseif not PausedByGroup then
+            hasTeleportedToGroupIdle = false
+        end
+        task.wait(0.5)
+    end
+end)
 
-while true do
-    if not Player or not Player.Character or not Player.Character.Parent then
-        wait(0.1)
-        continue
+RunServiceConnection = RunService.Heartbeat:Connect(function()
+    if not IsFarming then
+        return
+    end
+    if GetCandyAmount() >= MaxCandy then
+        IsFarming = false
+        SendWebhook('**FARMING COMPLETE!** Reached 3000 candies!')
+        RunServiceConnection:Disconnect()
+        return
     end
 
-    while IsPaused() do
-        wait(0.1)
+    if
+        not Player.Character
+        or not Player.Character:FindFirstChild('HumanoidRootPart')
+        or IsPaused()
+    then
+        return
     end
 
-    while PausedByGroup do
-        local a = GroupIdleArgs
-        local GroupIdleCf = CFrame.new(
-            a[1],
-            a[2],
-            a[3],
-            a[4],
-            a[5],
-            a[6],
-            a[7],
-            a[8],
-            a[9],
-            a[10],
-            a[11],
-            a[12]
-        )
-        if SafeMode then
-            TeleToSafeSpot()
-        else
-            TeleToCFrameSafe(GroupIdleCf)
-        end
-        local hrp = Player.Character
-            and Player.Character:FindFirstChild('HumanoidRootPart')
-        if hrp then
-            hrp.Velocity = Vector3.new(0, 0, 0)
-        end
-        wait(1)
+    if PausedByGroup then
+        return
     end
 
     DisableCollisions()
 
     if not HasBasket() then
         TryGrabBasket()
-        wait(0.1)
+        return
     end
 
-    local Doors = GetAvailableDoors()
-    if #Doors == 0 then
-        local a = GroupIdleArgs 
-        local GroupIdleCf = CFrame.new(
-            a[1],
-            a[2],
-            a[3],
-            a[4],
-            a[5],
-            a[6],
-            a[7],
-            a[8],
-            a[9],
-            a[10],
-            a[11],
-            a[12]
-        )
-
-        while true do
-            if #GetAvailableDoors() > 0 then
-                break
-            end
-
-            if SafeMode then
-                TeleToSafeSpot() 
-            else
-                TeleToCFrameSafe(GroupIdleCf) 
-            end
-
-            local hrp = Player.Character
-                and Player.Character:FindFirstChild('HumanoidRootPart')
-            if hrp then
-                hrp.Velocity = Vector3.zero
-            end
-
-            wait(1) 
-        end
-
-        local cur = GetCandyAmount()
-        if cur - StoredBase >= NotifyStep then
-            SendWebhook(
-                ('Candy increased by %d. Current candy: %d'):format(
-                    cur - StoredBase,
-                    cur
-                )
-            )
-            StoredBase = cur
-        end
-        continue
-    end
-
-    local Target = NearestDoor(Doors)
-    if Target then
-        local success = TreatDoor(Target)
-
-        if success then
-            task.wait(AfterTreat)
+    local doors = GetAvailableDoors()
+    if #doors == 0 then
+        if SafeMode then
+            TeleToSafeSpot()
         else
-            task.wait(0.25)
-        end
-    end
-
-    local new = GetCandyAmount()
-    if new - StoredBase >= NotifyStep then
-        SendWebhook(
-            ('Auto TrickOrTreat: Candy now %d (was %d)'):format(new, StoredBase)
-        )
-        StoredBase = new
-    end
-
-    if new > LastCandy then
-        LastCandy = new
-        LastCandyUpdate = tick()
-    else
-        if tick() - LastCandyUpdate >= CandyTimeout then
-            SendWebhook(
-                '@everyone **No candy gained in 60s!** AutoFarm may be stuck/broken!'
+            local cf = CFrame.new(
+                IdleArgs[1],
+                IdleArgs[2],
+                IdleArgs[3],
+                IdleArgs[4],
+                IdleArgs[5],
+                IdleArgs[6],
+                IdleArgs[7],
+                IdleArgs[8],
+                IdleArgs[9],
+                IdleArgs[10],
+                IdleArgs[11],
+                IdleArgs[12]
             )
-            LastCandyUpdate = tick()
+            TeleToCFrame(cf)
         end
+        return
     end
 
-    wait(0.06)
-end
+    local targetDoor
+    if SafeMode then
+        targetDoor = GetBestSafeModeDoor(doors)
+    else
+        targetDoor = GetNearestDoor(doors)
+    end
+
+    if targetDoor then
+        TreatDoor(targetDoor)
+    end
+
+    local currentCandy = GetCandyAmount()
+    if currentCandy >= MaxCandy then
+        IsFarming = false
+        SendWebhook('**FARMING COMPLETE!** Reached 3000 candies!')
+        RunServiceConnection:Disconnect()
+        return
+    end
+
+    if currentCandy - StoredBase >= NotifyStep then
+        local timeElapsed = tick() - StartTime
+        local candyPerHour =
+            math.floor(((currentCandy - initialCandy) / timeElapsed) * 3600)
+        local rewardMsg = ''
+        if math.floor(currentCandy / 500) > math.floor(StoredBase / 500) then
+            rewardMsg = '\n**REWARD UNLOCKED!**'
+        end
+
+        SendWebhook(
+            string.format(
+                '**CANDY UPDATE** #%d\n'
+                    .. 'Current: %d | Gained: +%d\n'
+                    .. 'Rate: %d/hr | Progress: %.1f%%\n'
+                    .. 'Time: %.1f min%s',
+                math.floor(currentCandy / 500) + 1,
+                currentCandy,
+                currentCandy - StoredBase,
+                candyPerHour,
+                (currentCandy / MaxCandy) * 100,
+                timeElapsed / 60,
+                rewardMsg
+            )
+        )
+        StoredBase = currentCandy
+    end
+end)
+
+spawn(function()
+    while true do
+        if Player.Character and Player.Character:FindFirstChild('Humanoid') then
+            pcall(function()
+                Player.Character.Humanoid:UnequipTools()
+            end)
+        end
+        task.wait(0.01)
+    end
+end)
