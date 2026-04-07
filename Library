@@ -833,7 +833,8 @@ do
 
 		TweenObj.Connection = self:Connection(run_service.RenderStepped, function(Dt: number): ()
 			Progress += Dt / Time;
-			if Progress >= 1 or not Obj or not Obj.Parent then
+			local parentCheckOk, parentCheckVal = pcall(function() return Obj.Parent end)
+			if Progress >= 1 or not Obj or (parentCheckOk and parentCheckVal == nil) then
 				TweenObj:Cancel();
 				return;
 			end;
