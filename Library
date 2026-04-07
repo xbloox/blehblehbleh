@@ -4529,18 +4529,18 @@ do
 				Objects = {} :: { },
 
 				Text = {
-					{ "nocturnal", true },
+					{ "MeoWare", true },
 
 					{
 						string_format(
 							"%s (uid %s)",
-							"newguy",
+							"Meowin",
 							tostring(1)
 						),
 						true
 					},
 
-					{ "Rivals", true },
+					{ "u", false },
 
 					{ "0 fps", true },
 
