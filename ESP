@@ -103,34 +103,45 @@ function Tween(InstanceObj: any, InstanceTo: { [string]: number }, InstanceTime:
 end;
 
 function FadeOut(PlayerObj: Player, FadeTime: number?, EnvironmentTable: {}): ()
-	local FadeDuration = FadeTime or 1;
-	if Fading[PlayerObj] then return end;
-	Fading[PlayerObj] = true;
+	local FadeDuration = FadeTime or 1
+	if Fading[PlayerObj] then return end
+	Fading[PlayerObj] = true
 
-	local Objects = EnvironmentTable._object_cache and EnvironmentTable._object_cache[PlayerObj] or EnvironmentTable._objectCache and EnvironmentTable._objectCache[PlayerObj];
+	local Objects = EnvironmentTable._object_cache and EnvironmentTable._object_cache[PlayerObj]
+		or EnvironmentTable._objectCache and EnvironmentTable._objectCache[PlayerObj]
 
-    if not Objects then return end;
+	if not Objects then
+		Fading[PlayerObj] = nil
+		return
+	end
 
 	for i = 1, #Objects do
-		local Obj = Objects[i];
+		local Obj = Objects[i]
 		if Obj.bin then
 			for j = 1, #Obj.bin do
-				local DrawingObj = Obj.bin[j];
+				local DrawingObj = Obj.bin[j]
 				if DrawingObj.Visible then
-					Tween(DrawingObj, { Transparency = 0 }, FadeDuration);
-				end;
-			end;
-		end;
+					Tween(DrawingObj, { Transparency = 1 }, FadeDuration)
+				end
+			end
+		end
+	end
 
-		if Obj.highlight and Obj.highlight:IsA("Highlight") then
-			--// OOPS
-		else
-			task.delay(FadeDuration * 1.5, function()
-				Fading[PlayerObj] = nil;
-			end);
-		end;
-	end;
-end;
+	task.delay(FadeDuration * 1.5, function()
+		Fading[PlayerObj] = nil
+		local FinalObjects = EnvironmentTable._objectCache and EnvironmentTable._objectCache[PlayerObj]
+		if FinalObjects then
+			for i = 1, #FinalObjects do
+				local Obj = FinalObjects[i]
+				if Obj.bin then
+					for j = 1, #Obj.bin do
+						Obj.bin[j].Visible = false
+					end
+				end
+			end
+		end
+	end)
+end
 
 function CreateThread(Func, ...): ( any, { [any]: any } ) -> ()
 	local Thread: any = coroutine.create(Func);
@@ -228,6 +239,21 @@ if Camera then
 	end);
 end;
 
+local function RebindCamera(NewCamera: Camera?)
+	Camera = NewCamera or Workspace.CurrentCamera
+	if Camera then
+		WtVp = Camera.WorldToViewportPoint
+		ViewportSize = Camera.ViewportSize
+		Camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+			ViewportSize = Camera.ViewportSize
+		end)
+	end
+end
+
+Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+	RebindCamera(Workspace.CurrentCamera)
+end)
+
 local function SplitPatterns(Pattern: string)
 	local Out = {};
 	for Token in Pattern:gmatch("[^|]+") do
@@ -286,12 +312,11 @@ function EspObject:_Create(ClassName: string, Properties: table): any
 end;
 
 function EspObject:Construct(): nil
-	self.charCache = {};
-	self.childCount = 0;
-	self.bin = {};
-	self.skeletonBones = {};
+	self.charCache = {}
+	self.childCount = 0
+	self.bin = {}
+	self.skeletonBones = {}
 
-	--// visible drawings
 	self.drawings = {
 		box3d = {
 			{self:_Create("Line", {Thickness = 1, Visible = false}), self:_Create("Line", {Thickness = 1, Visible = false}), self:_Create("Line", {Thickness = 1, Visible = false})},
@@ -312,7 +337,6 @@ function EspObject:Construct(): nil
 			distance = self:_Create("Text", {Center = true, Visible = false}),
 			weapon = self:_Create("Text", {Center = true, Visible = false}),
 
-			--// corners: for each corner we create 4 lines: hOutline, h, vOutline, v
 			corners = {
 				{ self:_Create("Line", {Thickness = 3, Visible = false}), self:_Create("Line", {Thickness = 1, Visible = false}), self:_Create("Line", {Thickness = 3, Visible = false}), self:_Create("Line", {Thickness = 1, Visible = false}) },
 				{ self:_Create("Line", {Thickness = 3, Visible = false}), self:_Create("Line", {Thickness = 1, Visible = false}), self:_Create("Line", {Thickness = 3, Visible = false}), self:_Create("Line", {Thickness = 1, Visible = false}) },
@@ -328,32 +352,18 @@ function EspObject:Construct(): nil
 			outline = {},
 			lines = {}
 		}
-	};
+	}
 
-	--// pre-create skeleton lines
 	for i = 1, 20 do
-		self.drawings.skeleton.outline[i] = self:_Create("Line", {Thickness = 3, Visible = false});
-		self.drawings.skeleton.lines[i] = self:_Create("Line", {Thickness = 1, Visible = false});
-	end;
+		self.drawings.skeleton.outline[i] = self:_Create("Line", {Thickness = 3, Visible = false})
+		self.drawings.skeleton.lines[i] = self:_Create("Line", {Thickness = 1, Visible = false})
+	end
 
-	--// render
 	self.renderConnection = RunService.Heartbeat:Connect(function(dt)
-		self:Update(dt);
-		self:Render(dt);
-
-		local Plrs = Players:GetPlayers();
-		for i = 1, #Plrs do
-			local p = Plrs[i];
-			local obj = self.Interface._objectCache[p];
-			if obj then
-				local Health, _ = self.Interface.getHealth(p);
-				if Health <= 0 then
-					FadeOut(p, 1, self.Interface);
-				end;
-			end;
-		end;
-	end);
-end;
+		self:Update(dt)
+		self:Render(dt)
+	end)
+end
 
 function EspObject:Destruct(): nil
 	if self.renderConnection then
@@ -366,67 +376,72 @@ function EspObject:Destruct(): nil
 end;
 
 function EspObject:Update(): nil
-	local Interface = self.Interface;
-	self.options = Interface.teamSettings[Interface.isFriendly(self.Player) and "friendly" or "enemy"];
-	self.character = Interface.getCharacter(self.Player);
-	self.health, self.maxHealth = Interface.getHealth(self.Player);
-	self.weapon = Interface.getWeapon(self.Player);
+	local Interface = self.Interface
+	self.options = Interface.teamSettings[Interface.isFriendly(self.Player) and "friendly" or "enemy"]
+	self.character = Interface.getCharacter(self.Player)
+	self.health, self.maxHealth = Interface.getHealth(self.Player)
+	self.weapon = Interface.getWeapon(self.Player)
 	self.enabled = self.options.enabled
 		and self.character ~= nil
 		and self.health > 0
-		and not (#Interface.whitelist > 0 and not TableFind(Interface.whitelist, self.Player.UserId));
+		and not (#Interface.whitelist > 0 and not TableFind(Interface.whitelist, self.Player.UserId))
 
-	local Head = self.enabled and FindFirstChild(self.character, "Head");
+	local Head = self.enabled and FindFirstChild(self.character, "Head")
 	if not Head then
-		self.charCache = {};
-		self.skeletonBones = {};
-		return;
-	end;
+		self.charCache = {}
+		self.skeletonBones = {}
+		return
+	end
 
-	local _, OnScreen, Depth = WorldToScreen(Head.Position);
-	self.onScreen = OnScreen;
-	self.distance = Depth;
+	local _, OnScreen, Depth = WorldToScreen(Head.Position)
+	self.onScreen = OnScreen
+	self.distance = Depth
 
 	if Interface.sharedSettings.limitDistance and Depth > Interface.sharedSettings.maxDistance then
-		self.onScreen = false;
-	end;
+		self.onScreen = false
+	end
 
 	if self.onScreen then
-		local Cache = self.charCache;
-		local Children = GetChildren(self.character);
+		local Cache = self.charCache
+		local Children = GetChildren(self.character)
 		if not Cache[1] or self.childCount ~= #Children then
-			TableClear(Cache);
+			TableClear(Cache)
 			for i = 1, #Children do
-				local Part = Children[i];
+				local Part = Children[i]
 				if IsA(Part, "BasePart") and IsBodyPart(Part.Name) then
-					Cache[#Cache + 1] = Part;
-				end;
-			end;
-			self.childCount = #Children;
-		end;
-		local CFrameObj, SizeObj = GetBoundingBox(Cache);
-		self.corners = CalculateCorners(CFrameObj, SizeObj);
+					Cache[#Cache + 1] = Part
+				end
+			end
+			self.childCount = #Children
+		end
 
-		TableClear(self.skeletonBones);
+		if #Cache > 0 then
+			local CFrameObj, SizeObj = GetBoundingBox(Cache)
+			self.corners = CalculateCorners(CFrameObj, SizeObj)
+		else
+			self.corners = nil
+		end
+
+		TableClear(self.skeletonBones)
 		for i = 1, #SKELETON_BONE_DEFS do
-			local Def = SKELETON_BONE_DEFS[i];
-			local APattern, BPattern = Def[1], Def[2];
-			local APart = FindPartByPatterns(self.character, APattern);
-			local BPart = FindPartByPatterns(self.character, BPattern);
+			local Def = SKELETON_BONE_DEFS[i]
+			local APattern, BPattern = Def[1], Def[2]
+			local APart = FindPartByPatterns(self.character, APattern)
+			local BPart = FindPartByPatterns(self.character, BPattern)
 			if APart and BPart and APart ~= BPart then
-				self.skeletonBones[#self.skeletonBones + 1] = {APart, BPart};
-			end;
-		end;
+				self.skeletonBones[#self.skeletonBones + 1] = {APart, BPart}
+			end
+		end
 	else
 		if self.options.offScreenArrow then
-			local _, Yaw, Roll = ToOrientation(Camera.CFrame);
-			local FlatCFrame = CFrame.Angles(0, Yaw, Roll) + Camera.CFrame.Position;
-			local ObjectSpace = PointToObjectSpace(FlatCFrame, Head.Position);
-			local Angle = Atan2(ObjectSpace.Z, ObjectSpace.X);
-			self.direction = Vector2.new(Cos(Angle), Sin(Angle));
-		end;
-	end;
-end;
+			local _, Yaw, Roll = ToOrientation(Camera.CFrame)
+			local FlatCFrame = CFrame.Angles(0, Yaw, Roll) + Camera.CFrame.Position
+			local ObjectSpace = PointToObjectSpace(FlatCFrame, Head.Position)
+			local Angle = Atan2(ObjectSpace.Z, ObjectSpace.X)
+			self.direction = Vector2.new(Cos(Angle), Sin(Angle))
+		end
+	end
+end
 
 function EspObject:Render(): nil
 	local OnScreen: boolean = self.onScreen or false;
@@ -1265,63 +1280,82 @@ function EspInterface.AddInstance(InstanceObj: Instance, Options: table)
 end;
 
 function EspInterface.Load(): nil
-	assert(not EspInterface._hasLoaded, "Esp has already been loaded.");
+	assert(not EspInterface._hasLoaded, "Esp has already been loaded.")
 
 	local function CreateObject(PlayerObj: Player)
-		EspInterface._objectCache[PlayerObj] = { EspObject.New(PlayerObj, EspInterface), ChamObject.New(PlayerObj, EspInterface) };
-	end;
+		EspInterface._objectCache[PlayerObj] = { EspObject.New(PlayerObj, EspInterface), ChamObject.New(PlayerObj, EspInterface) }
+	end
 
 	local function RemoveObject(PlayerObj: Player)
-		local Object = EspInterface._objectCache[PlayerObj];
+		Fading[PlayerObj] = nil
+		local Object = EspInterface._objectCache[PlayerObj]
 		if Object then
 			for i = 1, #Object do
-				Object[i]:Destruct();
-			end;
+				Object[i]:Destruct()
+			end
+			EspInterface._objectCache[PlayerObj] = nil
+		end
+	end
 
-			EspInterface._objectCache[PlayerObj] = nil;
-		end;
-	end;
-
-	local Plrs: { Players } = Players:GetPlayers();
-	local CreateTasks = {};
+	local Plrs: { Players } = Players:GetPlayers()
+	local CreateTasks = {}
 	for i = 1, #Plrs do
-		local P = Plrs[i];
+		local P = Plrs[i]
 		if P and not rawequal(P, LocalPlayer) then
-			CreateTasks[#CreateTasks + 1] = function() CreateObject(P); end;
-		end;
-	end;
+			CreateTasks[#CreateTasks + 1] = function() CreateObject(P) end
+		end
+	end
 
-	MultiThreadList(CreateTasks);
+	MultiThreadList(CreateTasks)
 
-	EspInterface.playerAdded = Players.PlayerAdded:Connect(function(p) CreateObject(p); end);
-	EspInterface.playerRemoving = Players.PlayerRemoving:Connect(function(p) RemoveObject(p); end);
-	EspInterface._hasLoaded = true;
-end;
+	EspInterface.deathCheckConnection = RunService.Heartbeat:Connect(function()
+		local AllPlayers = Players:GetPlayers()
+		for i = 1, #AllPlayers do
+			local PlayerObj = AllPlayers[i]
+			if rawequal(PlayerObj, LocalPlayer) then continue end
+			local CachedObject = EspInterface._objectCache[PlayerObj]
+			if CachedObject then
+				local CurrentHealth = EspInterface.getHealth(PlayerObj)
+				if CurrentHealth <= 0 then
+					FadeOut(PlayerObj, 1, EspInterface)
+				end
+			end
+		end
+	end)
+
+	EspInterface.playerAdded = Players.PlayerAdded:Connect(function(PlayerObj) CreateObject(PlayerObj) end)
+	EspInterface.playerRemoving = Players.PlayerRemoving:Connect(function(PlayerObj) RemoveObject(PlayerObj) end)
+	EspInterface._hasLoaded = true
+end
 
 function EspInterface.Unload(): nil
-	assert(EspInterface._hasLoaded, "Esp has not been loaded yet.");
+	assert(EspInterface._hasLoaded, "Esp has not been loaded yet.")
 
-	local Keys = {};
-
+	local Keys = {}
 	for k, _ in EspInterface._objectCache do
-		Keys[#Keys + 1] = k;
-	end;
+		Keys[#Keys + 1] = k
+	end
 
 	for i = 1, #Keys do
-		local Index = Keys[i];
-		local Object = EspInterface._objectCache[Index];
+		local Index = Keys[i]
+		local Object = EspInterface._objectCache[Index]
 		if Object then
 			for j = 1, #Object do
-				Object[j]:Destruct();
-			end;
-			EspInterface._objectCache[Index] = nil;
-		end;
-	end;
+				Object[j]:Destruct()
+			end
+			EspInterface._objectCache[Index] = nil
+		end
+	end
 
-	EspInterface.playerAdded:Disconnect();
-	EspInterface.playerRemoving:Disconnect();
-	EspInterface._hasLoaded = false;
-end;
+	if EspInterface.deathCheckConnection then
+		EspInterface.deathCheckConnection:Disconnect()
+		EspInterface.deathCheckConnection = nil
+	end
+
+	EspInterface.playerAdded:Disconnect()
+	EspInterface.playerRemoving:Disconnect()
+	EspInterface._hasLoaded = false
+end
 
 function EspInterface.getWeapon(PlayerObj: Player): string
 	if PlayerObj.Character and PlayerObj.Character:FindFirstChild("Humanoid") and PlayerObj.Character.Humanoid.Health > 0 then
@@ -1347,13 +1381,12 @@ function EspInterface.getCharacter(PlayerObj: Player): Model?
 end;
 
 function EspInterface.getHealth(PlayerObj: Player): (number, number)
-	local Character = PlayerObj and EspInterface.getCharacter(PlayerObj);
-	local Humanoid = Character and FindFirstChildOfClass(Character, "Humanoid");
+	local Character = PlayerObj and EspInterface.getCharacter(PlayerObj)
+	local Humanoid = Character and FindFirstChildOfClass(Character, "Humanoid")
 	if Humanoid then
-		return Humanoid.Health, Humanoid.MaxHealth;
-	end;
-
-	return 100, 100;
-end;
+		return Humanoid.Health, Humanoid.MaxHealth
+	end
+	return 0, 100
+end
 
 return EspInterface :: EspObject;
