@@ -371,7 +371,10 @@ function EspObject:Update(): nil
 	self.character = Interface.getCharacter(self.Player);
 	self.health, self.maxHealth = Interface.getHealth(self.Player);
 	self.weapon = Interface.getWeapon(self.Player);
-	self.enabled = self.options.enabled and self.character and not (#Interface.whitelist > 0 and not TableFind(Interface.whitelist, self.Player.UserId));
+	self.enabled = self.options.enabled
+		and self.character ~= nil
+		and self.health > 0
+		and not (#Interface.whitelist > 0 and not TableFind(Interface.whitelist, self.Player.UserId));
 
 	local Head = self.enabled and FindFirstChild(self.character, "Head");
 	if not Head then
@@ -404,7 +407,6 @@ function EspObject:Update(): nil
 		local CFrameObj, SizeObj = GetBoundingBox(Cache);
 		self.corners = CalculateCorners(CFrameObj, SizeObj);
 
-		--// skeleton
 		TableClear(self.skeletonBones);
 		for i = 1, #SKELETON_BONE_DEFS do
 			local Def = SKELETON_BONE_DEFS[i];
