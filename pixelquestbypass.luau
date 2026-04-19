@@ -1,4 +1,4 @@
-local debug = false -- Set to false to disable all prints
+local debug = true -- Set to false to disable all prints
 
 local function log(...)
     if debug then
