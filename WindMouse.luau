@@ -3,7 +3,7 @@
     
     Physics-based human-like mouse movement.
     
-    Load:
+    Loaded as:
         local WindMouse = loadstring(game:HttpGet("..."))()
         WindMouse.Settings.Gravity = 9
         WindMouse.Settings.VisualizePath = true
@@ -17,7 +17,7 @@
         gethui()                -- hidden gui parent (optional, falls back to CoreGui)
         Drawing.new(class)      -- visual debug lines (only required for RunTests)
     
-    API:
+    PUBLIC API:
         WindMouse.Settings              -- config table (see fields below)
         WindMouse.AbortFn               -- optional () -> boolean, return true to abort current move
         
@@ -54,7 +54,8 @@ local UserInputService = cloneref(game:GetService("UserInputService"))
 local Camera = workspace.CurrentCamera
 
 -- // Math
-local MathSqrt, MathRound, MathRandom, MathMin, MathClamp, MathHuge = math.sqrt, math.round, math.random, math.min, math.clamp, math.huge
+local MathSqrt, MathRound, MathRandom, MathMin, MathClamp, MathHuge =
+    math.sqrt, math.round, math.random, math.min, math.clamp, math.huge
 
 -- // Constructors
 local Vec2 = Vector2.new
@@ -62,14 +63,15 @@ local Color3FromRGB = Color3.fromRGB
 local UDim2FromOffset = UDim2.fromOffset
 
 -- // Table
-local TableCreate, TableClear, TableRemove = table.create, table.clear, table.remove
+local TableCreate, TableClear = table.create, table.clear
+local TableRemove = table.remove
 
 -- // Constants
 -- WindMouse algorithm tuning constants — empirically chosen, do not modify
 local SQRT_3 = MathSqrt(3)            -- wind decay factor: each step wind divides by sqrt(3)
 local SQRT_5 = MathSqrt(5)            -- wind fluctuation + velocity reduction scale
 local MAX_ITERATIONS = 15000          -- safety cap to prevent infinite loops
-local TRAIL_MAX_POINTS = 50           -- Path2D hard limit
+local TRAIL_MAX_POINTS = 50           -- Path2D hard limit per Roblox docs
 local TEST_LINE_THICKNESS = 1
 local TEST_LINE_COUNT = 5
 local TEST_HORIZONTAL_PADDING_PCT = 0.10
@@ -98,9 +100,11 @@ WindMouse.Settings = {
 }
 
 -- Optional abort hook — set this to a function returning a boolean.
+-- When it returns true, the current ExecutePath aborts at its next step boundary.
+-- Useful for toggle-off responsiveness in tracking aimbots.
 WindMouse.AbortFn = nil
 
--- Internal state
+-- Internal state — not for external mutation
 local State = {
     Loaded = false,
     ScreenSize = Camera.ViewportSize,
@@ -127,6 +131,7 @@ local function GetGuiParent(): Instance
     if type(gethui) == "function" then
         return gethui()
     end
+    -- Fallback only — gethui is the proper choice on every modern executor.
     return game:GetService("CoreGui")
 end
 
@@ -171,10 +176,12 @@ local function AddTrailPoint(absX: number, absY: number): ()
     local points = viz.Points
     points[#points + 1] = Path2DControlPoint.new(UDim2FromOffset(absX, absY))
     
+    -- Path2D caps at 50 control points; drop oldest to keep trail rolling.
     if #points > TRAIL_MAX_POINTS then
         TableRemove(points, 1)
     end
     
+    -- Path2D requires at least 2 points to render anything visible.
     if #points >= 2 then
         path:SetControlPoints(points)
     end
@@ -253,6 +260,7 @@ local function GeneratePath(
         local errorY = destY - posY
         local distSquared = errorX * errorX + errorY * errorY
         
+        -- Squared comparison avoids sqrt for the stop test in the hot loop.
         if distSquared < 1 then break end
         
         local distance = MathSqrt(distSquared)
