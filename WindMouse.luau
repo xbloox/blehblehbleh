@@ -3,7 +3,7 @@
 
     Generates human-like mouse movement via physics simulation:
         - Gravity pulls cursor toward target
-        - Wind adds randomness/curvature
+        - Wind adds randomness and curvature
         - Velocity damping near target
 
     Usage:
@@ -16,10 +16,8 @@
         })
         Mouse:MoveToTarget(Vector2.new(1000, 500))
 
-    MoveToTarget is non-blocking. Calling repeatedly with new targets
-    smoothly tracks a moving destination (background thread reads the
-    latest destination each iteration). Stop() cancels in-progress
-    movement.
+    MoveToTarget is non-blocking. Calling repeatedly with new targets smoothly
+    tracks a moving destination. Stop() cancels in-progress movement.
 ]]
 
 -- // Services
@@ -57,7 +55,7 @@ export type WindMouseType = typeof(setmetatable({} :: {
     Destination:      Vector2?,
     DestVersion:      number,
     Active:           boolean,
-    Thread:           thread?,
+    ThreadId:         number,
 }, WindMouse))
 
 function WindMouse.new(config: WindMouseConfig?): WindMouseType
@@ -70,7 +68,7 @@ function WindMouse.new(config: WindMouseConfig?): WindMouseType
         Destination      = nil,
         DestVersion      = 0,
         Active           = false,
-        Thread           = nil,
+        ThreadId         = 0,
     }, WindMouse)
 end
 
@@ -78,7 +76,7 @@ end
 function WindMouse:Stop(): ()
     self.Active = false
     self.Destination = nil
-    self.Thread = nil
+    self.ThreadId = self.ThreadId + 1
 end
 
 -- // Updates target. If a movement thread is already running, it picks up
@@ -89,21 +87,23 @@ function WindMouse:MoveToTarget(target: Vector2): ()
     self.DestVersion = self.DestVersion + 1
     if self.Active then return end
     self.Active = true
+    self.ThreadId = self.ThreadId + 1
+    local myThreadId = self.ThreadId
 
-    self.Thread = task.spawn(function()
-        -- Algorithm state. Resets on each fresh thread (matches Python).
+    task.spawn(function()
         local velocityX, velocityY = 0, 0
         local windX, windY = 0, 0
         local residualX, residualY = 0, 0
         local maxStep = self.MaxStep
+        local restingState = false
 
-        while self.Active do
+        while self.Active and self.ThreadId == myThreadId do
             local dest = self.Destination
             if not dest then break end
 
-            -- Real mouse pos each iteration. Robust for locked-cursor
-            -- games where mousemoverel rotates the camera and the cursor
-            -- itself stays centered.
+            -- Real cursor pos every iteration. Robust for locked-cursor games
+            -- where mousemoverel rotates the camera while the cursor itself
+            -- stays centered.
             local mouseLoc = UserInputService:GetMouseLocation()
             local currentX, currentY = mouseLoc.X, mouseLoc.Y
 
@@ -112,13 +112,23 @@ function WindMouse:MoveToTarget(target: Vector2): ()
             local dist = MathSqrt(diffX * diffX + diffY * diffY)
 
             if dist < 1 then
-                -- Reached target. If no further MoveToTarget call lands
-                -- before the next frame, exit. Otherwise resume with the
-                -- updated destination (tracking case).
+                restingState = true
                 local versionAtRest = self.DestVersion
                 task.wait()
                 if self.DestVersion == versionAtRest then break end
                 continue
+            end
+
+            -- Fresh state when transitioning from at-rest into a new movement.
+            -- Without this, leftover velocity/wind/decayed maxStep from the
+            -- previous arrival cause the cursor to bounce around the target
+            -- on small destination updates (live tracking jitter).
+            if restingState then
+                velocityX, velocityY = 0, 0
+                windX, windY = 0, 0
+                residualX, residualY = 0, 0
+                maxStep = self.MaxStep
+                restingState = false
             end
 
             local windCurrent = MathMin(self.WindMagnitude, dist)
@@ -139,15 +149,19 @@ function WindMouse:MoveToTarget(target: Vector2): ()
             velocityX = velocityX + windX + self.GravityMagnitude * diffX / dist
             velocityY = velocityY + windY + self.GravityMagnitude * diffY / dist
 
+            -- Cap step at remaining distance to prevent overshoot. Only kicks
+            -- in when dist < maxStep (the final approach), so long sweeping
+            -- moves are completely unaffected by this clamp.
+            local stepCap = MathMin(maxStep, dist)
             local velMag = MathSqrt(velocityX * velocityX + velocityY * velocityY)
-            if velMag > maxStep then
-                local velClip = maxStep * 0.5 + MathRandom() * maxStep * 0.5
+            if velMag > stepCap then
+                local velClip = stepCap * 0.5 + MathRandom() * stepCap * 0.5
                 velocityX = (velocityX / velMag) * velClip
                 velocityY = (velocityY / velMag) * velClip
             end
 
-            -- Carry sub-pixel velocity forward as a residual so we don't
-            -- lose fractional motion to integer rounding each frame.
+            -- Carry sub-pixel velocity forward as a residual so we don't lose
+            -- fractional motion to integer rounding each frame.
             local moveTotalX = velocityX + residualX
             local moveTotalY = velocityY + residualY
             local moveX = MathRound(moveTotalX)
@@ -162,8 +176,9 @@ function WindMouse:MoveToTarget(target: Vector2): ()
             task.wait()
         end
 
-        self.Active = false
-        self.Thread = nil
+        if self.ThreadId == myThreadId then
+            self.Active = false
+        end
     end)
 end
 
