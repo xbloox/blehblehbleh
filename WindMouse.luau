@@ -35,6 +35,12 @@ local DEFAULT_WIND         = 3;
 local DEFAULT_MAX_STEP     = 15;
 local DEFAULT_DAMPED_DIST  = 12;
 
+-- Tangent damping factor applied inside the damped zone (close to target).
+-- Velocity is decomposed into radial (toward target) and tangential (orbital)
+-- components; only the tangential component is scaled. Stops the cursor from
+-- circling the target without slowing the actual approach.
+local TANGENT_DAMP = 0.4;
+
 ------------------------------------------------------------------------
 
 local WindMouse = {}
@@ -101,6 +107,15 @@ function WindMouse:MoveToTarget(target: Vector2): ()
             local dest = self.Destination
             if not dest then break end
 
+            -- Pause while window is unfocused so we don't spray mouse events
+            -- into other applications. Treat as a rest so the next active
+            -- frame starts with clean state.
+            if not iswindowactive() then
+                restingState = true
+                task.wait()
+                continue
+            end
+
             -- Real cursor pos every iteration. Robust for locked-cursor games
             -- where mousemoverel rotates the camera while the cursor itself
             -- stays centered.
@@ -122,7 +137,7 @@ function WindMouse:MoveToTarget(target: Vector2): ()
             -- Fresh state when transitioning from at-rest into a new movement.
             -- Without this, leftover velocity/wind/decayed maxStep from the
             -- previous arrival cause the cursor to bounce around the target
-            -- on small destination updates (live tracking jitter).
+            -- on small destination updates.
             if restingState then
                 velocityX, velocityY = 0, 0
                 windX, windY = 0, 0
@@ -144,6 +159,21 @@ function WindMouse:MoveToTarget(target: Vector2): ()
                 else
                     maxStep = maxStep / SQRT5
                 end
+
+                -- Tangent damping. Decompose current velocity into radial
+                -- (along the toward-target axis) and tangential (perpendicular)
+                -- components, then scale ONLY the tangent. Radial speed is
+                -- preserved so the approach speed isn't compromised. This
+                -- breaks orbital momentum that wind can build up.
+                local diffDirX = diffX / dist
+                local diffDirY = diffY / dist
+                local radialMag = velocityX * diffDirX + velocityY * diffDirY
+                local radialX = radialMag * diffDirX
+                local radialY = radialMag * diffDirY
+                local tangentX = velocityX - radialX
+                local tangentY = velocityY - radialY
+                velocityX = radialX + tangentX * TANGENT_DAMP
+                velocityY = radialY + tangentY * TANGENT_DAMP
             end
 
             velocityX = velocityX + windX + self.GravityMagnitude * diffX / dist
