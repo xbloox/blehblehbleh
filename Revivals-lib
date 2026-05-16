@@ -1092,6 +1092,19 @@ function Revival:CreateWatermark(systemConfig)
 		local iconColor = blockConfig.IconColor or blockTheme.AccentColor
 		local textColor = blockConfig.TextColor or blockTheme.SecondaryTextColor
 
+		local TEXT_SIZE = 14
+		local ICON_BOX = 18
+		local INNER_GAP = 6
+		local SIDE_PAD = 6
+
+		local function computeBlockWidth(textContent)
+			local textBounds = getTextSize(tostring(textContent), TEXT_SIZE, blockTheme.BoldFont)
+			if hasIcon then
+				return SIDE_PAD + ICON_BOX + INNER_GAP + math.ceil(textBounds.X) + SIDE_PAD
+			end
+			return SIDE_PAD + math.ceil(textBounds.X) + SIDE_PAD
+		end
+
 		blockOrderCounter += 1
 
 		local dividerFrame = Instance.new("Frame")
@@ -1111,47 +1124,35 @@ function Revival:CreateWatermark(systemConfig)
 		blockFrame.Name = "Block"
 		blockFrame.BackgroundTransparency = 1
 		blockFrame.BorderSizePixel = 0
-		blockFrame.Size = UDim2.new(0, 0, 0, 30)
-		blockFrame.AutomaticSize = Enum.AutomaticSize.X
+		blockFrame.Size = UDim2.new(0, computeBlockWidth(blockConfig.Text), 0, 30)
 		blockFrame.LayoutOrder = blockOrderCounter * 2
-
-		local blockPadding = Instance.new("UIPadding")
-		blockPadding.PaddingLeft = UDim.new(0, 6)
-		blockPadding.PaddingRight = UDim.new(0, 6)
-		blockPadding.Parent = blockFrame
-
-		local blockLayout = Instance.new("UIListLayout")
-		blockLayout.FillDirection = Enum.FillDirection.Horizontal
-		blockLayout.SortOrder = Enum.SortOrder.LayoutOrder
-		blockLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-		blockLayout.Padding = UDim.new(0, 6)
-		blockLayout.Parent = blockFrame
 
 		local iconLabel
 		if hasIcon then
 			iconLabel = Instance.new("TextLabel")
 			iconLabel.BackgroundTransparency = 1
-			iconLabel.Size = UDim2.new(0, 18, 0, 18)
+			iconLabel.AnchorPoint = Vector2.new(0, 0.5)
+			iconLabel.Position = UDim2.new(0, SIDE_PAD, 0.5, 0)
+			iconLabel.Size = UDim2.new(0, ICON_BOX, 0, ICON_BOX)
 			iconLabel.TextColor3 = iconColor
 			iconLabel.TextSize = 16
 			iconLabel.TextTransparency = 0.2
-			iconLabel.LayoutOrder = 1
 			iconLabel.Parent = blockFrame
 			applyIcon(iconLabel, blockConfig.Icon)
 		end
 
 		local textLabel = Instance.new("TextLabel")
 		textLabel.BackgroundTransparency = 1
-		textLabel.Size = UDim2.new(0, 0, 1, 0)
-		textLabel.AutomaticSize = Enum.AutomaticSize.X
+		textLabel.AnchorPoint = Vector2.new(0, 0.5)
+		textLabel.Position = UDim2.new(0, hasIcon and (SIDE_PAD + ICON_BOX + INNER_GAP) or SIDE_PAD, 0.5, 0)
+		textLabel.Size = UDim2.new(1, hasIcon and -(SIDE_PAD + ICON_BOX + INNER_GAP + SIDE_PAD) or -(SIDE_PAD + SIDE_PAD), 0, 18)
 		textLabel.TextColor3 = textColor
-		textLabel.TextSize = 14
+		textLabel.TextSize = TEXT_SIZE
 		textLabel.Font = blockTheme.BoldFont
-		textLabel.Text = blockConfig.Text
+		textLabel.Text = tostring(blockConfig.Text)
 		textLabel.TextXAlignment = Enum.TextXAlignment.Left
 		textLabel.TextYAlignment = Enum.TextYAlignment.Center
 		textLabel.TextTransparency = 0.2
-		textLabel.LayoutOrder = 2
 		textLabel.Parent = blockFrame
 
 		blockFrame.Parent = watermarkFrame
@@ -1164,8 +1165,18 @@ function Revival:CreateWatermark(systemConfig)
 		clickButton.ZIndex = 2
 		clickButton.Parent = blockFrame
 
+		local function recomputeBlockSize(animated)
+			local newWidth = computeBlockWidth(textLabel.Text)
+			if animated then
+				tween(blockFrame, TWEEN_SLOW, { Size = UDim2.new(0, newWidth, 0, 30) })
+			else
+				blockFrame.Size = UDim2.new(0, newWidth, 0, 30)
+			end
+		end
+
 		function blockHandle:SetText(newText)
 			textLabel.Text = tostring(newText)
+			recomputeBlockSize(true)
 		end
 
 		function blockHandle:SetIcon(newIcon)
@@ -1323,15 +1334,23 @@ function Revival:CreateTargetUI(systemConfig)
 	local titleLabel
 	local headerHeight = 0
 	if systemConfig.Title then
-		headerHeight = 28
+		headerHeight = 30
 		headerFrame = Instance.new("Frame")
 		headerFrame.Name = "Header"
-		headerFrame.BackgroundColor3 = theme.SecondaryColor
-		headerFrame.BackgroundTransparency = 0.2
+		headerFrame.BackgroundColor3 = theme.AccentColor
+		headerFrame.BackgroundTransparency = 0.82
 		headerFrame.BorderSizePixel = 0
 		headerFrame.Size = UDim2.new(1, 0, 0, headerHeight)
 		headerFrame.Position = UDim2.new(0, 0, 0, 0)
 		headerFrame.Parent = rootFrame
+
+		local headerTint = Instance.new("Frame")
+		headerTint.Name = "HeaderTint"
+		headerTint.BackgroundColor3 = theme.SecondaryColor
+		headerTint.BackgroundTransparency = 0.4
+		headerTint.BorderSizePixel = 0
+		headerTint.Size = UDim2.new(1, 0, 1, 0)
+		headerTint.Parent = headerFrame
 
 		titleLabel = Instance.new("TextLabel")
 		titleLabel.Name = "Title"
@@ -1344,16 +1363,18 @@ function Revival:CreateTargetUI(systemConfig)
 		titleLabel.TextXAlignment = Enum.TextXAlignment.Center
 		titleLabel.TextYAlignment = Enum.TextYAlignment.Center
 		titleLabel.TextTransparency = 0.05
+		titleLabel.ZIndex = 2
 		titleLabel.Parent = headerFrame
 
 		local headerBottomLine = Instance.new("Frame")
 		headerBottomLine.Name = "HeaderBottomLine"
 		headerBottomLine.AnchorPoint = Vector2.new(0, 1)
-		headerBottomLine.BackgroundColor3 = theme.BorderColor
-		headerBottomLine.BackgroundTransparency = theme.BorderTransparency
+		headerBottomLine.BackgroundColor3 = theme.AccentColor
+		headerBottomLine.BackgroundTransparency = 0.3
 		headerBottomLine.BorderSizePixel = 0
 		headerBottomLine.Position = UDim2.new(0, 0, 1, 0)
 		headerBottomLine.Size = UDim2.new(1, 0, 0, 1)
+		headerBottomLine.ZIndex = 3
 		headerBottomLine.Parent = headerFrame
 	end
 
@@ -1404,7 +1425,7 @@ function Revival:CreateTargetUI(systemConfig)
 			tween(rootFrame, TWEEN_SLOW, { BackgroundTransparency = theme.BackgroundTransparency })
 			tween(stroke, TWEEN_SLOW, { Transparency = theme.BorderTransparency })
 			if headerFrame then
-				tween(headerFrame, TWEEN_SLOW, { BackgroundTransparency = 0.2 })
+				tween(headerFrame, TWEEN_SLOW, { BackgroundTransparency = 0.82 })
 			end
 			if titleLabel then
 				tween(titleLabel, TWEEN_SLOW, { TextTransparency = 0.05 })
