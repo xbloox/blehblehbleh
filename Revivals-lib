@@ -187,11 +187,33 @@ local function getTextSize(text, size, font)
 	)
 end
 
-local function resolvePosition(positionInput)
+local function resolvePosition(positionInput, offsetVector)
+	local basePreset
 	if typeof(positionInput) == "string" and POSITION_PRESETS[positionInput] then
-		return POSITION_PRESETS[positionInput], false
+		basePreset = POSITION_PRESETS[positionInput]
+	else
+		basePreset = POSITION_PRESETS.TopRight
 	end
-	return POSITION_PRESETS.TopRight, false
+
+	if offsetVector and (offsetVector.X ~= 0 or offsetVector.Y ~= 0) then
+		local basePosition = basePreset.Position
+		local offsetPosition = UDim2.new(
+			basePosition.X.Scale,
+			basePosition.X.Offset + offsetVector.X,
+			basePosition.Y.Scale,
+			basePosition.Y.Offset + offsetVector.Y
+		)
+		return {
+			AnchorPoint = basePreset.AnchorPoint,
+			Position = offsetPosition,
+			StackOrigin = basePreset.StackOrigin,
+			HorizontalAlignment = basePreset.HorizontalAlignment,
+			VerticalAlignment = basePreset.VerticalAlignment,
+			SlideFrom = basePreset.SlideFrom,
+		}, false
+	end
+
+	return basePreset, false
 end
 
 local function applyIcon(label, iconString, useRegular)
@@ -407,6 +429,7 @@ end
 function Revival:CreateNotification(systemConfig)
 	systemConfig = processConfig(systemConfig, {
 		Position = "TopRight",
+		Offset = Vector2.new(0, 0),
 		DefaultDuration = 5,
 		Padding = 10,
 		MaxWidth = 400,
@@ -426,7 +449,7 @@ function Revival:CreateNotification(systemConfig)
 	container.AutomaticSize = Enum.AutomaticSize.XY
 	container.Size = UDim2.new(0, 0, 0, 0)
 
-	local preset = resolvePosition(systemConfig.Position)
+	local preset = resolvePosition(systemConfig.Position, systemConfig.Offset)
 	container.AnchorPoint = preset.AnchorPoint
 	container.Position = preset.Position
 	container.Parent = Revival.ScreenGui
@@ -701,10 +724,17 @@ function Revival:CreateNotification(systemConfig)
 
 	function notificationSystem:SetPosition(newPosition)
 		self.Config.Position = newPosition
-		local newPreset = resolvePosition(newPosition)
+		local newPreset = resolvePosition(newPosition, self.Config.Offset)
 		container.AnchorPoint = newPreset.AnchorPoint
 		container.Position = newPreset.Position
 		applyAlignmentForPreset(layout, newPreset)
+	end
+
+	function notificationSystem:SetOffset(newOffset)
+		self.Config.Offset = newOffset or Vector2.new(0, 0)
+		local newPreset = resolvePosition(self.Config.Position, self.Config.Offset)
+		container.AnchorPoint = newPreset.AnchorPoint
+		container.Position = newPreset.Position
 	end
 
 	function notificationSystem:Clear()
@@ -734,6 +764,7 @@ end
 function Revival:CreateLogger(systemConfig)
 	systemConfig = processConfig(systemConfig, {
 		Position = "TopLeft",
+		Offset = Vector2.new(0, 0),
 		DefaultDuration = 3,
 		Padding = 12,
 		MaxWidth = 400,
@@ -752,7 +783,7 @@ function Revival:CreateLogger(systemConfig)
 	container.AutomaticSize = Enum.AutomaticSize.XY
 	container.Size = UDim2.new(0, 0, 0, 0)
 
-	local preset = resolvePosition(systemConfig.Position)
+	local preset = resolvePosition(systemConfig.Position, systemConfig.Offset)
 	container.AnchorPoint = preset.AnchorPoint
 	container.Position = preset.Position
 	container.Parent = Revival.ScreenGui
@@ -953,10 +984,17 @@ function Revival:CreateLogger(systemConfig)
 
 	function loggerSystem:SetPosition(newPosition)
 		self.Config.Position = newPosition
-		local newPreset = resolvePosition(newPosition)
+		local newPreset = resolvePosition(newPosition, self.Config.Offset)
 		container.AnchorPoint = newPreset.AnchorPoint
 		container.Position = newPreset.Position
 		applyAlignmentForPreset(layout, newPreset)
+	end
+
+	function loggerSystem:SetOffset(newOffset)
+		self.Config.Offset = newOffset or Vector2.new(0, 0)
+		local newPreset = resolvePosition(self.Config.Position, self.Config.Offset)
+		container.AnchorPoint = newPreset.AnchorPoint
+		container.Position = newPreset.Position
 	end
 
 	function loggerSystem:Clear()
@@ -986,6 +1024,9 @@ end
 function Revival:CreateWatermark(systemConfig)
 	systemConfig = processConfig(systemConfig, {
 		Position = "TopRight",
+		Offset = Vector2.new(0, 0),
+		CustomPosition = nil,
+		AnchorPoint = nil,
 		Orientation = "Horizontal",
 		Draggable = false,
 		Padding = 5,
@@ -1008,9 +1049,14 @@ function Revival:CreateWatermark(systemConfig)
 	watermarkFrame.Size = UDim2.new(0, 30, 0, 30)
 	watermarkFrame.AutomaticSize = Enum.AutomaticSize.None
 
-	local preset = resolvePosition(systemConfig.Position)
-	watermarkFrame.AnchorPoint = preset.AnchorPoint
-	watermarkFrame.Position = preset.Position
+	local watermarkPreset = resolvePosition(systemConfig.Position, systemConfig.Offset)
+	if systemConfig.CustomPosition then
+		watermarkFrame.Position = systemConfig.CustomPosition
+		watermarkFrame.AnchorPoint = systemConfig.AnchorPoint or Vector2.new(0, 0)
+	else
+		watermarkFrame.AnchorPoint = watermarkPreset.AnchorPoint
+		watermarkFrame.Position = watermarkPreset.Position
+	end
 	watermarkFrame.Parent = Revival.ScreenGui
 
 	local corner = Instance.new("UICorner")
@@ -1021,6 +1067,13 @@ function Revival:CreateWatermark(systemConfig)
 	stroke.Color = theme.BorderColor
 	stroke.Transparency = theme.BorderTransparency
 	stroke.Parent = watermarkFrame
+
+	local watermarkPadding = Instance.new("UIPadding")
+	watermarkPadding.PaddingLeft = UDim.new(0, 10)
+	watermarkPadding.PaddingRight = UDim.new(0, 10)
+	watermarkPadding.PaddingTop = UDim.new(0, 5)
+	watermarkPadding.PaddingBottom = UDim.new(0, 5)
+	watermarkPadding.Parent = watermarkFrame
 
 	local layout = Instance.new("UIListLayout")
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
@@ -1253,12 +1306,25 @@ function Revival:CreateWatermark(systemConfig)
 
 	function watermark:SetPosition(newPosition)
 		self.Config.Position = newPosition
-		local newPreset = resolvePosition(newPosition)
+		self.Config.CustomPosition = nil
+		local newPreset = resolvePosition(newPosition, self.Config.Offset)
+		watermarkFrame.AnchorPoint = newPreset.AnchorPoint
+		watermarkFrame.Position = newPreset.Position
+	end
+
+	function watermark:SetOffset(newOffset)
+		self.Config.Offset = newOffset or Vector2.new(0, 0)
+		if self.Config.CustomPosition then
+			return
+		end
+		local newPreset = resolvePosition(self.Config.Position, self.Config.Offset)
 		watermarkFrame.AnchorPoint = newPreset.AnchorPoint
 		watermarkFrame.Position = newPreset.Position
 	end
 
 	function watermark:SetCustomPosition(udim2, anchorPoint)
+		self.Config.CustomPosition = udim2
+		self.Config.AnchorPoint = anchorPoint
 		watermarkFrame.AnchorPoint = anchorPoint or watermarkFrame.AnchorPoint
 		watermarkFrame.Position = udim2
 	end
@@ -1286,6 +1352,7 @@ function Revival:CreateTargetUI(systemConfig)
 	systemConfig = processConfig(systemConfig, {
 		Title = nil,
 		Position = "MiddleLeft",
+		Offset = Vector2.new(0, 0),
 		CustomPosition = nil,
 		AnchorPoint = nil,
 		Width = 220,
@@ -1311,7 +1378,7 @@ function Revival:CreateTargetUI(systemConfig)
 	rootFrame.ClipsDescendants = true
 	rootFrame.Size = UDim2.new(0, systemConfig.Width, 0, 40)
 
-	local resolvedPreset = resolvePosition(systemConfig.Position)
+	local resolvedPreset = resolvePosition(systemConfig.Position, systemConfig.Offset)
 	if systemConfig.CustomPosition then
 		rootFrame.Position = systemConfig.CustomPosition
 		rootFrame.AnchorPoint = systemConfig.AnchorPoint or Vector2.new(0, 0)
@@ -1994,12 +2061,25 @@ function Revival:CreateTargetUI(systemConfig)
 
 	function targetUI:SetPosition(newPosition)
 		self.Config.Position = newPosition
-		local newPreset = resolvePosition(newPosition)
+		self.Config.CustomPosition = nil
+		local newPreset = resolvePosition(newPosition, self.Config.Offset)
+		rootFrame.AnchorPoint = newPreset.AnchorPoint
+		rootFrame.Position = newPreset.Position
+	end
+
+	function targetUI:SetOffset(newOffset)
+		self.Config.Offset = newOffset or Vector2.new(0, 0)
+		if self.Config.CustomPosition then
+			return
+		end
+		local newPreset = resolvePosition(self.Config.Position, self.Config.Offset)
 		rootFrame.AnchorPoint = newPreset.AnchorPoint
 		rootFrame.Position = newPreset.Position
 	end
 
 	function targetUI:SetCustomPosition(udim2, anchorPoint)
+		self.Config.CustomPosition = udim2
+		self.Config.AnchorPoint = anchorPoint
 		rootFrame.AnchorPoint = anchorPoint or rootFrame.AnchorPoint
 		rootFrame.Position = udim2
 	end
