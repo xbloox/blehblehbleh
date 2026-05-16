@@ -292,11 +292,42 @@ local function createShadow(parent, doRolling)
 	return shadow
 end
 
-local function makeDraggable(handle, target, tweenSpeed)
+local function makeDraggable(handle, target, tweenSpeed, clampToParent)
 	local isDragging = false
 	local dragStart
 	local startPos
 	local dragTween = TweenInfo.new(tweenSpeed or 0.1)
+
+	local function clampPosition(rawPosition)
+		if not clampToParent then
+			return rawPosition
+		end
+		local parent = target.Parent
+		if not parent or not parent:IsA("GuiBase2d") then
+			return rawPosition
+		end
+
+		local parentSize = parent.AbsoluteSize
+		local frameSize = target.AbsoluteSize
+		local anchor = target.AnchorPoint
+
+		local pixelX = rawPosition.X.Scale * parentSize.X + rawPosition.X.Offset
+		local pixelY = rawPosition.Y.Scale * parentSize.Y + rawPosition.Y.Offset
+
+		local leftEdge = pixelX - frameSize.X * anchor.X
+		local topEdge = pixelY - frameSize.Y * anchor.Y
+
+		local maxLeft = math.max(0, parentSize.X - frameSize.X)
+		local maxTop = math.max(0, parentSize.Y - frameSize.Y)
+
+		leftEdge = math.clamp(leftEdge, 0, maxLeft)
+		topEdge = math.clamp(topEdge, 0, maxTop)
+
+		pixelX = leftEdge + frameSize.X * anchor.X
+		pixelY = topEdge + frameSize.Y * anchor.Y
+
+		return UDim2.new(0, pixelX, 0, pixelY)
+	end
 
 	addConnection(handle.InputBegan:Connect(function(input)
 		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
@@ -333,7 +364,7 @@ local function makeDraggable(handle, target, tweenSpeed)
 			startPos.Y.Scale,
 			startPos.Y.Offset + delta.Y
 		)
-		tween(target, dragTween, { Position = newPosition })
+		tween(target, dragTween, { Position = clampPosition(newPosition) })
 	end))
 end
 
@@ -379,11 +410,13 @@ function Revival:CreateNotification(systemConfig)
 		DefaultDuration = 5,
 		Padding = 10,
 		MaxWidth = 400,
+		MaxVisible = 5,
 	})
 
 	local notificationSystem = {
 		Config = systemConfig,
 		_LayoutCounter = 0,
+		_VisibleQueue = {},
 	}
 
 	local container = Instance.new("Frame")
@@ -592,36 +625,56 @@ function Revival:CreateNotification(systemConfig)
 		local closeThread
 		local closed = false
 
-		local function close()
+		local function close(fast)
 			if closed then
 				return
 			end
 			closed = true
 
-			if closeThread then
-				task.cancel(closeThread)
-				closeThread = nil
+			if closeThread and closeThread ~= coroutine.running() then
+				pcall(task.cancel, closeThread)
+			end
+			closeThread = nil
+
+			local exitTween = fast and TWEEN_FAST or TWEEN_SLOW
+			local exitDelay = fast and 0.12 or 0.25
+			local slideAmount = fast and 60 or math.max(notification.AbsoluteSize.X, notification.AbsoluteSize.Y) + 60
+
+			local exitX, exitY = 0, 0
+			if slideFrom == "Right" then
+				exitX = slideAmount
+			elseif slideFrom == "Left" then
+				exitX = -slideAmount
+			elseif slideFrom == "Top" then
+				exitY = -slideAmount
+			elseif slideFrom == "Bottom" then
+				exitY = slideAmount
 			end
 
-			tween(notification, TWEEN_SLOW, {
+			tween(notification, exitTween, {
 				BackgroundTransparency = 1,
-				Position = UDim2.new(0, startOffset.X * 0.5, 0, startOffset.Y * 0.5),
+				Position = UDim2.new(0, exitX, 0, exitY),
 			})
-			tween(stroke, TWEEN_SLOW, { Transparency = 1 })
-			tween(titleLabel, TWEEN_SLOW, { TextTransparency = 1 })
+			tween(stroke, exitTween, { Transparency = 1 })
+			tween(titleLabel, exitTween, { TextTransparency = 1 })
 			if contentLabel then
-				tween(contentLabel, TWEEN_SLOW, { TextTransparency = 1 })
+				tween(contentLabel, exitTween, { TextTransparency = 1 })
 			end
 			if mediaElementRef then
 				if hasLogo then
-					tween(mediaElementRef, TWEEN_SLOW, { ImageTransparency = 1 })
+					tween(mediaElementRef, exitTween, { ImageTransparency = 1 })
 				else
-					tween(mediaElementRef, TWEEN_SLOW, { TextTransparency = 1 })
+					tween(mediaElementRef, exitTween, { TextTransparency = 1 })
 				end
 			end
 			shadow:Render(false)
 
-			task.delay(0.25, function()
+			local queueIndex = table.find(notificationSystem._VisibleQueue, notificationHandle)
+			if queueIndex then
+				table.remove(notificationSystem._VisibleQueue, queueIndex)
+			end
+
+			task.delay(exitDelay, function()
 				if notification.Parent then
 					shadow:Destroy()
 					notification:Destroy()
@@ -634,6 +687,14 @@ function Revival:CreateNotification(systemConfig)
 		if notifConfig.Duration and notifConfig.Duration > 0 then
 			closeThread = task.delay(notifConfig.Duration, close)
 		end
+
+		while #notificationSystem._VisibleQueue >= notificationSystem.Config.MaxVisible do
+			local oldest = table.remove(notificationSystem._VisibleQueue, 1)
+			if oldest and oldest.Close then
+				oldest.Close(true)
+			end
+		end
+		table.insert(notificationSystem._VisibleQueue, notificationHandle)
 
 		return notificationHandle
 	end
@@ -676,10 +737,12 @@ function Revival:CreateLogger(systemConfig)
 		DefaultDuration = 3,
 		Padding = 12,
 		MaxWidth = 400,
+		MaxVisible = 6,
 	})
 
 	local loggerSystem = {
 		Config = systemConfig,
+		_VisibleQueue = {},
 	}
 
 	local container = Instance.new("Frame")
@@ -796,23 +859,57 @@ function Revival:CreateLogger(systemConfig)
 			shadow:Render(true)
 		end)
 
+		local currentPreset = resolvePosition(loggerSystem.Config.Position)
+		local logSlideFrom = currentPreset.SlideFrom
+
+		local closeThread
 		local closed = false
-		local function close()
+		local logHandle = { Root = logFrame }
+
+		local function close(fast)
 			if closed then
 				return
 			end
 			closed = true
 
-			tween(logFrame, TWEEN_SLOW, { BackgroundTransparency = 1 })
-			tween(stroke, TWEEN_SLOW, { Transparency = 1 })
-			tween(accentLine, TWEEN_SLOW, { BackgroundTransparency = 1 })
-			if iconLabel then
-				tween(iconLabel, TWEEN_SLOW, { TextTransparency = 1 })
+			if closeThread and closeThread ~= coroutine.running() then
+				pcall(task.cancel, closeThread)
 			end
-			tween(messageLabel, TWEEN_SLOW, { TextTransparency = 1 })
+			closeThread = nil
+
+			local exitTween = fast and TWEEN_FAST or TWEEN_SLOW
+			local exitDelay = fast and 0.12 or 0.25
+			local slideAmount = fast and 60 or math.max(logFrame.AbsoluteSize.X, logFrame.AbsoluteSize.Y) + 60
+
+			local exitX, exitY = 0, 0
+			if logSlideFrom == "Right" then
+				exitX = slideAmount
+			elseif logSlideFrom == "Left" then
+				exitX = -slideAmount
+			elseif logSlideFrom == "Top" then
+				exitY = -slideAmount
+			elseif logSlideFrom == "Bottom" then
+				exitY = slideAmount
+			end
+
+			tween(logFrame, exitTween, {
+				BackgroundTransparency = 1,
+				Position = UDim2.new(0, exitX, 0, exitY),
+			})
+			tween(stroke, exitTween, { Transparency = 1 })
+			tween(accentLine, exitTween, { BackgroundTransparency = 1 })
+			if iconLabel then
+				tween(iconLabel, exitTween, { TextTransparency = 1 })
+			end
+			tween(messageLabel, exitTween, { TextTransparency = 1 })
 			shadow:Render(false)
 
-			task.delay(0.25, function()
+			local queueIndex = table.find(loggerSystem._VisibleQueue, logHandle)
+			if queueIndex then
+				table.remove(loggerSystem._VisibleQueue, queueIndex)
+			end
+
+			task.delay(exitDelay, function()
 				if logFrame.Parent then
 					shadow:Destroy()
 					logFrame:Destroy()
@@ -820,11 +917,21 @@ function Revival:CreateLogger(systemConfig)
 			end)
 		end
 
+		logHandle.Close = close
+
 		if duration and duration > 0 then
-			task.delay(duration, close)
+			closeThread = task.delay(duration, close)
 		end
 
-		return { Root = logFrame, Close = close }
+		while #loggerSystem._VisibleQueue >= loggerSystem.Config.MaxVisible do
+			local oldest = table.remove(loggerSystem._VisibleQueue, 1)
+			if oldest and oldest.Close then
+				oldest.Close(true)
+			end
+		end
+		table.insert(loggerSystem._VisibleQueue, logHandle)
+
+		return logHandle
 	end
 
 	function loggerSystem.new(...)
@@ -931,7 +1038,7 @@ function Revival:CreateWatermark(systemConfig)
 	shadow:Render(true)
 
 	if systemConfig.Draggable then
-		makeDraggable(watermarkFrame, watermarkFrame, 0.1)
+		makeDraggable(watermarkFrame, watermarkFrame, 0.1, true)
 	end
 
 	local function recomputeSize()
@@ -952,6 +1059,24 @@ function Revival:CreateWatermark(systemConfig)
 
 	addConnection(layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(recomputeSize))
 
+	local blockOrderCounter = 0
+
+	local function refreshDividers()
+		local foundFirstVisible = false
+		for index, block in watermark.Blocks do
+			if block._Frame.Visible then
+				if not foundFirstVisible then
+					block._Divider.Visible = false
+					foundFirstVisible = true
+				else
+					block._Divider.Visible = true
+				end
+			else
+				block._Divider.Visible = false
+			end
+		end
+	end
+
 	function watermark:AddBlock(blockConfig)
 		blockConfig = processConfig(blockConfig, {
 			Icon = nil,
@@ -967,25 +1092,49 @@ function Revival:CreateWatermark(systemConfig)
 		local iconColor = blockConfig.IconColor or blockTheme.AccentColor
 		local textColor = blockConfig.TextColor or blockTheme.SecondaryTextColor
 
+		blockOrderCounter += 1
+
+		local dividerFrame = Instance.new("Frame")
+		dividerFrame.Name = "Divider"
+		dividerFrame.BackgroundColor3 = blockTheme.BorderColor
+		dividerFrame.BackgroundTransparency = 0.4
+		dividerFrame.BorderSizePixel = 0
+		dividerFrame.LayoutOrder = blockOrderCounter * 2 - 1
+		if systemConfig.Orientation == "Vertical" then
+			dividerFrame.Size = UDim2.new(0, 18, 0, 1)
+		else
+			dividerFrame.Size = UDim2.new(0, 1, 0, 16)
+		end
+		dividerFrame.Parent = watermarkFrame
+
 		local blockFrame = Instance.new("Frame")
+		blockFrame.Name = "Block"
 		blockFrame.BackgroundTransparency = 1
 		blockFrame.BorderSizePixel = 0
+		blockFrame.Size = UDim2.new(0, 0, 0, 30)
+		blockFrame.AutomaticSize = Enum.AutomaticSize.X
+		blockFrame.LayoutOrder = blockOrderCounter * 2
+
+		local blockPadding = Instance.new("UIPadding")
+		blockPadding.PaddingLeft = UDim.new(0, 6)
+		blockPadding.PaddingRight = UDim.new(0, 6)
+		blockPadding.Parent = blockFrame
 
 		local blockLayout = Instance.new("UIListLayout")
 		blockLayout.FillDirection = Enum.FillDirection.Horizontal
 		blockLayout.SortOrder = Enum.SortOrder.LayoutOrder
 		blockLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-		blockLayout.Padding = UDim.new(0, 5)
+		blockLayout.Padding = UDim.new(0, 6)
 		blockLayout.Parent = blockFrame
 
 		local iconLabel
 		if hasIcon then
 			iconLabel = Instance.new("TextLabel")
 			iconLabel.BackgroundTransparency = 1
-			iconLabel.Size = UDim2.new(0, 20, 0, 20)
+			iconLabel.Size = UDim2.new(0, 18, 0, 18)
 			iconLabel.TextColor3 = iconColor
-			iconLabel.TextSize = 18
-			iconLabel.TextTransparency = 0.25
+			iconLabel.TextSize = 16
+			iconLabel.TextTransparency = 0.2
 			iconLabel.LayoutOrder = 1
 			iconLabel.Parent = blockFrame
 			applyIcon(iconLabel, blockConfig.Icon)
@@ -993,20 +1142,17 @@ function Revival:CreateWatermark(systemConfig)
 
 		local textLabel = Instance.new("TextLabel")
 		textLabel.BackgroundTransparency = 1
-		textLabel.Size = UDim2.new(0, 0, 0, 25)
+		textLabel.Size = UDim2.new(0, 0, 1, 0)
 		textLabel.AutomaticSize = Enum.AutomaticSize.X
 		textLabel.TextColor3 = textColor
-		textLabel.TextSize = 15
+		textLabel.TextSize = 14
 		textLabel.Font = blockTheme.BoldFont
 		textLabel.Text = blockConfig.Text
 		textLabel.TextXAlignment = Enum.TextXAlignment.Left
+		textLabel.TextYAlignment = Enum.TextYAlignment.Center
 		textLabel.TextTransparency = 0.2
 		textLabel.LayoutOrder = 2
 		textLabel.Parent = blockFrame
-
-		local textSize = getTextSize(blockConfig.Text, 15, blockTheme.BoldFont)
-		local widthCalculation = textSize.X + (hasIcon and 25 or 0)
-		blockFrame.Size = UDim2.new(0, widthCalculation, 0, 30)
 
 		blockFrame.Parent = watermarkFrame
 
@@ -1015,17 +1161,11 @@ function Revival:CreateWatermark(systemConfig)
 		clickButton.Size = UDim2.new(1, 0, 1, 0)
 		clickButton.Text = ""
 		clickButton.AutoButtonColor = false
+		clickButton.ZIndex = 2
 		clickButton.Parent = blockFrame
-
-		local function recomputeBlockSize()
-			local newSize = getTextSize(textLabel.Text, 15, blockTheme.BoldFont)
-			local newWidth = newSize.X + (hasIcon and 25 or 0)
-			tween(blockFrame, TWEEN_SLOW, { Size = UDim2.new(0, newWidth, 0, 30) })
-		end
 
 		function blockHandle:SetText(newText)
 			textLabel.Text = tostring(newText)
-			recomputeBlockSize()
 		end
 
 		function blockHandle:SetIcon(newIcon)
@@ -1047,6 +1187,7 @@ function Revival:CreateWatermark(systemConfig)
 
 		function blockHandle:SetVisible(visible)
 			blockFrame.Visible = visible
+			refreshDividers()
 		end
 
 		function blockHandle:OnClick(callback)
@@ -1057,16 +1198,22 @@ function Revival:CreateWatermark(systemConfig)
 			if blockFrame.Parent then
 				blockFrame:Destroy()
 			end
+			if dividerFrame.Parent then
+				dividerFrame:Destroy()
+			end
 			local blockIndex = table.find(watermark.Blocks, blockHandle)
 			if blockIndex then
 				table.remove(watermark.Blocks, blockIndex)
 			end
+			refreshDividers()
 		end
 
 		blockHandle._Frame = blockFrame
+		blockHandle._Divider = dividerFrame
 		blockHandle._TextLabel = textLabel
 		blockHandle._IconLabel = iconLabel
 		table.insert(watermark.Blocks, blockHandle)
+		refreshDividers()
 
 		return blockHandle
 	end
@@ -1150,7 +1297,7 @@ function Revival:CreateTargetUI(systemConfig)
 	rootFrame.BackgroundColor3 = theme.MainColor
 	rootFrame.BackgroundTransparency = theme.BackgroundTransparency
 	rootFrame.BorderSizePixel = 0
-	rootFrame.ClipsDescendants = false
+	rootFrame.ClipsDescendants = true
 	rootFrame.Size = UDim2.new(0, systemConfig.Width, 0, 40)
 
 	local resolvedPreset = resolvePosition(systemConfig.Position)
@@ -1172,36 +1319,50 @@ function Revival:CreateTargetUI(systemConfig)
 	stroke.Transparency = theme.BorderTransparency
 	stroke.Parent = rootFrame
 
+	local headerFrame
 	local titleLabel
-	local titleHeight = 0
+	local headerHeight = 0
 	if systemConfig.Title then
-		titleHeight = 28
+		headerHeight = 28
+		headerFrame = Instance.new("Frame")
+		headerFrame.Name = "Header"
+		headerFrame.BackgroundColor3 = theme.SecondaryColor
+		headerFrame.BackgroundTransparency = 0.2
+		headerFrame.BorderSizePixel = 0
+		headerFrame.Size = UDim2.new(1, 0, 0, headerHeight)
+		headerFrame.Position = UDim2.new(0, 0, 0, 0)
+		headerFrame.Parent = rootFrame
+
 		titleLabel = Instance.new("TextLabel")
+		titleLabel.Name = "Title"
 		titleLabel.BackgroundTransparency = 1
-		titleLabel.Position = UDim2.new(0, 0, 0, 0)
-		titleLabel.Size = UDim2.new(1, 0, 0, titleHeight)
+		titleLabel.Size = UDim2.new(1, 0, 1, 0)
 		titleLabel.TextColor3 = theme.PrimaryTextColor
 		titleLabel.TextSize = 13
 		titleLabel.Font = theme.BoldFont
 		titleLabel.Text = systemConfig.Title
 		titleLabel.TextXAlignment = Enum.TextXAlignment.Center
-		titleLabel.Parent = rootFrame
+		titleLabel.TextYAlignment = Enum.TextYAlignment.Center
+		titleLabel.TextTransparency = 0.05
+		titleLabel.Parent = headerFrame
 
-		local titleLine = Instance.new("Frame")
-		titleLine.AnchorPoint = Vector2.new(0.5, 1)
-		titleLine.BackgroundColor3 = theme.BorderColor
-		titleLine.BackgroundTransparency = theme.BorderTransparency
-		titleLine.BorderSizePixel = 0
-		titleLine.Position = UDim2.new(0.5, 0, 1, 0)
-		titleLine.Size = UDim2.new(1, -20, 0, 1)
-		titleLine.Parent = titleLabel
+		local headerBottomLine = Instance.new("Frame")
+		headerBottomLine.Name = "HeaderBottomLine"
+		headerBottomLine.AnchorPoint = Vector2.new(0, 1)
+		headerBottomLine.BackgroundColor3 = theme.BorderColor
+		headerBottomLine.BackgroundTransparency = theme.BorderTransparency
+		headerBottomLine.BorderSizePixel = 0
+		headerBottomLine.Position = UDim2.new(0, 0, 1, 0)
+		headerBottomLine.Size = UDim2.new(1, 0, 0, 1)
+		headerBottomLine.Parent = headerFrame
 	end
 
 	local contentArea = Instance.new("Frame")
+	contentArea.Name = "Body"
 	contentArea.BackgroundTransparency = 1
 	contentArea.BorderSizePixel = 0
-	contentArea.Position = UDim2.new(0, 0, 0, titleHeight)
-	contentArea.Size = UDim2.new(1, 0, 1, -titleHeight)
+	contentArea.Position = UDim2.new(0, 0, 0, headerHeight)
+	contentArea.Size = UDim2.new(1, 0, 1, -headerHeight)
 	contentArea.Parent = rootFrame
 
 	local contentLayout = Instance.new("UIListLayout")
@@ -1221,10 +1382,10 @@ function Revival:CreateTargetUI(systemConfig)
 	local shadow = createShadow(rootFrame, false)
 	shadow:Render(true)
 
-	if systemConfig.Draggable and titleLabel then
-		makeDraggable(titleLabel, rootFrame, 0.1)
+	if systemConfig.Draggable and headerFrame then
+		makeDraggable(headerFrame, rootFrame, 0.1, true)
 	elseif systemConfig.Draggable then
-		makeDraggable(rootFrame, rootFrame, 0.1)
+		makeDraggable(rootFrame, rootFrame, 0.1, true)
 	end
 
 	local componentLayoutCounter = 0
@@ -1232,7 +1393,7 @@ function Revival:CreateTargetUI(systemConfig)
 	local function resizeRoot()
 		local contentSize = contentLayout.AbsoluteContentSize
 		local verticalPadding = 16
-		local finalHeight = contentSize.Y + verticalPadding + titleHeight
+		local finalHeight = contentSize.Y + verticalPadding + headerHeight
 		tween(rootFrame, TWEEN_SLOW, { Size = UDim2.new(0, systemConfig.Width, 0, finalHeight) })
 	end
 
@@ -1242,13 +1403,19 @@ function Revival:CreateTargetUI(systemConfig)
 		if visible then
 			tween(rootFrame, TWEEN_SLOW, { BackgroundTransparency = theme.BackgroundTransparency })
 			tween(stroke, TWEEN_SLOW, { Transparency = theme.BorderTransparency })
+			if headerFrame then
+				tween(headerFrame, TWEEN_SLOW, { BackgroundTransparency = 0.2 })
+			end
 			if titleLabel then
-				tween(titleLabel, TWEEN_SLOW, { TextTransparency = 0 })
+				tween(titleLabel, TWEEN_SLOW, { TextTransparency = 0.05 })
 			end
 			shadow:Render(true)
 		else
 			tween(rootFrame, TWEEN_SLOW, { BackgroundTransparency = 1 })
 			tween(stroke, TWEEN_SLOW, { Transparency = 1 })
+			if headerFrame then
+				tween(headerFrame, TWEEN_SLOW, { BackgroundTransparency = 1 })
+			end
 			if titleLabel then
 				tween(titleLabel, TWEEN_SLOW, { TextTransparency = 1 })
 			end
