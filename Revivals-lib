@@ -521,33 +521,31 @@ function Revival:CreateNotification(systemConfig)
 			contentLabel.Size = UDim2.new(0, textAreaWidth, 0, contentWrapHeight)
 		end
 
+		local mediaElementRef
 		if hasMedia then
-			local mediaElement
 			if hasLogo then
-				mediaElement = Instance.new("ImageLabel")
-				mediaElement.BackgroundTransparency = 1
-				mediaElement.Image = notifConfig.Logo
-				mediaElement.ImageTransparency = 1
-				mediaElement.ImageColor3 = theme.PrimaryTextColor
+				mediaElementRef = Instance.new("ImageLabel")
+				mediaElementRef.BackgroundTransparency = 1
+				mediaElementRef.Image = notifConfig.Logo
+				mediaElementRef.ImageTransparency = 1
+				mediaElementRef.ImageColor3 = theme.PrimaryTextColor
 
 				local logoCorner = Instance.new("UICorner")
 				logoCorner.CornerRadius = UDim.new(0, 7)
-				logoCorner.Parent = mediaElement
+				logoCorner.Parent = mediaElementRef
 			else
-				mediaElement = Instance.new("TextLabel")
-				mediaElement.BackgroundTransparency = 1
-				mediaElement.TextColor3 = accentColor
-				mediaElement.TextSize = 26
-				mediaElement.TextTransparency = 1
-				applyIcon(mediaElement, notifConfig.Icon)
+				mediaElementRef = Instance.new("TextLabel")
+				mediaElementRef.BackgroundTransparency = 1
+				mediaElementRef.TextColor3 = accentColor
+				mediaElementRef.TextSize = 26
+				mediaElementRef.TextTransparency = 1
+				applyIcon(mediaElementRef, notifConfig.Icon)
 			end
 
-			mediaElement.AnchorPoint = Vector2.new(0, 0.5)
-			mediaElement.Position = UDim2.new(0, leftPadding, 0.5, 0)
-			mediaElement.Size = UDim2.new(0, 35, 0, 35)
-			mediaElement.Parent = notification
-
-			notification._MediaElement = mediaElement
+			mediaElementRef.AnchorPoint = Vector2.new(0, 0.5)
+			mediaElementRef.Position = UDim2.new(0, leftPadding, 0.5, 0)
+			mediaElementRef.Size = UDim2.new(0, 35, 0, 35)
+			mediaElementRef.Parent = notification
 		end
 
 		notification.Size = UDim2.new(0, finalWidth, 0, finalHeight)
@@ -579,11 +577,11 @@ function Revival:CreateNotification(systemConfig)
 		if contentLabel then
 			tween(contentLabel, TWEEN_SLOW, { TextTransparency = 0.35 })
 		end
-		if notification._MediaElement then
+		if mediaElementRef then
 			if hasLogo then
-				tween(notification._MediaElement, TWEEN_SLOW, { ImageTransparency = 0 })
+				tween(mediaElementRef, TWEEN_SLOW, { ImageTransparency = 0 })
 			else
-				tween(notification._MediaElement, TWEEN_SLOW, { TextTransparency = 0 })
+				tween(mediaElementRef, TWEEN_SLOW, { TextTransparency = 0 })
 			end
 		end
 		shadow:Render(true)
@@ -614,11 +612,11 @@ function Revival:CreateNotification(systemConfig)
 			if contentLabel then
 				tween(contentLabel, TWEEN_SLOW, { TextTransparency = 1 })
 			end
-			if notification._MediaElement then
+			if mediaElementRef then
 				if hasLogo then
-					tween(notification._MediaElement, TWEEN_SLOW, { ImageTransparency = 1 })
+					tween(mediaElementRef, TWEEN_SLOW, { ImageTransparency = 1 })
 				else
-					tween(notification._MediaElement, TWEEN_SLOW, { TextTransparency = 1 })
+					tween(mediaElementRef, TWEEN_SLOW, { TextTransparency = 1 })
 				end
 			end
 			shadow:Render(false)
