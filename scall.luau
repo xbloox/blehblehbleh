@@ -61,3 +61,5 @@ local secure_call do
         return unpack(response, 1, response.n)
     end
 end
+
+return secure_call
